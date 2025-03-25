@@ -1,0 +1,13 @@
+edu.bu.labs.pokemon
+edu.bu.labs.pokemon.agents.test
+edu.bu.labs.pokemon.core
+edu.bu.labs.pokemon.core.callbacks
+edu.bu.labs.pokemon.core.callbacks.test
+edu.bu.labs.pokemon.core.enums
+edu.bu.labs.pokemon.core.lookups
+edu.bu.labs.pokemon.core.test
+edu.bu.labs.pokemon.core.test.moves
+edu.bu.labs.pokemon.rendering
+edu.bu.labs.pokemon.traversal
+edu.bu.labs.pokemon.traversal.test
+edu.bu.labs.pokemon.utils
