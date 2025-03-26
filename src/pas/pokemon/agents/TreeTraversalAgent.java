@@ -184,6 +184,7 @@ public class TreeTraversalAgent
     }
 }
 
+
 public class MinimaxTreeBuilder
     extends Agent
 {
@@ -359,9 +360,9 @@ public class MinimaxTreeBuilder
                 successChance = 0.0;
             } else if (status == NonVolatileStatus.FREEZE) {
                 successChance = 0.0;
-            } else if (status) {
+            } else if (status == NonVolatileStatus.PARALYZED) {
                 successChance = 0.75;
-            } else if (pokemon.hasFlad(Flag.FLINCHED)) {
+            } else if (pokemon.hasFlag(Flag.FLINCHED)) {
                 successChance = 0.0;
             } else {
                 successChance = 1.0;
@@ -372,7 +373,8 @@ public class MinimaxTreeBuilder
             }
 
             double correctMoveChance = successChance * (1.0 - confuseChance);
-            double selfHitChance = usableChance * confuseChance;
+            double selfHitChance = successChance * confuseChance;
+            double failChance = 1.0 - successChance;
 
             // Real move goes through
             if (correctMoveChance > 0) {
@@ -406,9 +408,9 @@ public class MinimaxTreeBuilder
             }
 
             // Fails entirely
-            if (successChance < 1.0) {
+            if (failChance > 0) {
                 Node child = new PostTurnChanceNode(state, casterIdx, oppIdx);
-                children.add(new Pair<>((1.0 - successChance), child));
+                children.add(new Pair<>(failChance, child));
             }
 
             return children;
