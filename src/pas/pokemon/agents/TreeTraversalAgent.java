@@ -62,6 +62,89 @@ public class TreeTraversalAgent
         }
     }
 
+    //!!!! Function to return the expected utility of a node? to be called by stochasticTreeSearcher to decide move
+
+    /*
+    private double expectiminimax(Node node, int depth) {
+        // Terminal condition: if state is over or maximum depth reached, evaluate.
+        if (node.state.isOver() || depth >= maxDepth) {
+            return evaluate(node.state);
+        }
+        
+        // Expand the node if children not generated yet.
+        if (node.children.isEmpty()) {
+            expandNode(node);
+        }
+        
+        // Depending on the node type, choose the appropriate aggregation.
+        if (node.type == NodeType.MAX) {
+            double maxVal = Double.NEGATIVE_INFINITY;
+            for (Node child : node.children) {
+                double childVal = expectiminimax(child, depth + 1);
+                maxVal = Math.max(maxVal, childVal);
+            }
+            return maxVal;
+        } else if (node.type == NodeType.MIN) {
+            double minVal = Double.POSITIVE_INFINITY;
+            for (Node child : node.children) {
+                double childVal = expectiminimax(child, depth + 1);
+                minVal = Math.min(minVal, childVal);
+            }
+            return minVal;
+        } else if (node.type == NodeType.CHANCE) {
+            double expVal = 0.0;
+            for (Node child : node.children) {
+                double childVal = expectiminimax(child, depth + 1);
+                expVal += child.probability * childVal;
+            }
+            return expVal;
+        }
+        // Should not reach here.
+        return 0.0;
+    }
+     */
+
+    //Expand Node function that uses API calls to get a nodes child(used in build tree func):
+    /*
+    private void expandNode(Node node) {
+        // Example expansion for a MAX node (our turn)
+        if (node.type == NodeType.MAX) {
+            // TODO: Replace with actual code to get available moves for our Pokemon.
+            List<MoveView> availableMoves = node.state.getTeamView(getMyTeamIdx()).getPokemonView(0).getAvailableMoves();
+            // For each move, create a child node.
+            for (MoveView move : availableMoves) {
+                // Simulate applying the move: get potential outcomes.
+                // The getPotentialEffects method returns a List of pairs (probability, new BattleView)
+                List<Pair<Double, BattleView>> outcomes = move.getPotentialEffects(node.state, getMyTeamIdx(), 1); // assuming opponent index 1
+                // For each outcome, create a chance node.
+                Node moveNode = new Node(null, move, NodeType.MAX); // intermediate node representing taking move 'move'
+                for (Pair<Double, BattleView> outcome : outcomes) {
+                    double prob = outcome.getFirst();
+                    BattleView newState = outcome.getSecond();
+                    Node chanceNode = new Node(newState, prob);
+                    // For simplicity, we assume that after a chance node, it is the MIN node (opponent's turn).
+                    chanceNode.type = NodeType.MIN;
+                    moveNode.children.add(chanceNode);
+                }
+                // Add the move node as a child of the current node.
+                node.children.add(moveNode);
+            }
+        } else if (node.type == NodeType.MIN) {
+            // TODO: Expand MIN nodes.
+            // You might simulate the opponent's move.
+            // For example, use an oracle to select the opponent's move and then generate a single child.
+            // Here we simply create a dummy child that returns the same state.
+            Node child = new Node(node.state, null, NodeType.MAX);
+            child.probability = 1.0;
+            node.children.add(child);
+        } else if (node.type == NodeType.CHANCE) {
+            // Typically, chance nodes are generated in the MAX node expansion.
+            // If additional expansion is needed (e.g., post-turn effects), implement it here.
+            // For now, we assume that chance nodes are leaves if no further randomness applies.
+        }
+    }
+    */
+
 	private class StochasticTreeSearcher
         extends Object
         implements Callable<Pair<MoveView, Long> >  // so this object can be run in a background thread
@@ -98,7 +181,21 @@ public class TreeTraversalAgent
 		 */
         public MoveView stochasticTreeSearch(BattleView rootView) //, int depth)
         {
-            return null;
+            // Create the root node. We assume that at the root, it is our turn (MAX node).
+            Node root = new Node(rootView, null, NodeType.MAX);
+            // Expand the root node.
+            expandNode(root);
+            // We assume that each child of the root represents a move.
+            MoveView bestMove = null;
+            double bestValue = Double.NEGATIVE_INFINITY;
+            for (Node child : root.children) {
+                double value = expectiminimax(child, 1);
+                if (value > bestValue) {
+                    bestValue = value;
+                    bestMove = child.move;
+                }
+            }
+            return bestMove;
         }
 
         @Override
