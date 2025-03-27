@@ -35,6 +35,8 @@ import java.util.stream.Collectors;
 public class TreeTraversalAgent
     extends Agent
 {
+    private int startAliveCount = -1;
+
 	private class StochasticTreeSearcher
         extends MinimaxTreeBuilder
         implements Callable<Pair<MoveView, Long>>
@@ -107,7 +109,7 @@ public class TreeTraversalAgent
     {
         super();
         this.maxThinkingTimePerMoveInMS = 180000 * 2; // 6 min/move
-        this.maxDepth = 3; // or whatever depth you want
+        this.maxDepth = 4; // or whatever depth you want
     }
 
     public int getMaxDepth() { return this.maxDepth; }
@@ -121,7 +123,7 @@ public class TreeTraversalAgent
         TeamView oppTeam = state.getTeam2View();
         int oppTeamIdx = oppTeam.getBattleIdx();
         int myTeamIdx = myTeam.getBattleIdx();
-        int exploreDepth = this.maxDepth;
+        int exploreDepth = computeDynamicDepth(state);
 
         // Potential switch moves
         List<SwitchMoveView> switchMoves = MinimaxTreeBuilder.getLegalSwitches(state, myTeamIdx);
@@ -170,11 +172,12 @@ public class TreeTraversalAgent
         ExecutorService backgroundThreadManager = Executors.newSingleThreadExecutor();
         MoveView move = null;
         long durationInMs = 0;
+        int dynamicDepth = computeDynamicDepth(battleView);
 
         // Create the searcher
         StochasticTreeSearcher searcherObject = new StochasticTreeSearcher(
             battleView,
-            this.maxDepth,
+            dynamicDepth,
             this.getMyTeamIdx()
         );
 
@@ -209,6 +212,46 @@ public class TreeTraversalAgent
         }
 
         return move;
+    }
+
+    // helper for scaling max depth dynamically
+    private int countAllAlive(BattleView state) {
+        int alive = 0;
+
+        for (int i = 0; i < state.getTeam1View().size(); i++) {
+            PokemonView p = state.getTeam1View().getPokemonView(i);
+            if (p == null) break; 
+            if (!p.hasFainted()) {
+                alive++;
+            }
+        }
+
+        for (int i = 0; i < state.getTeam2View().size(); i++) {
+            PokemonView p = state.getTeam2View().getPokemonView(i);
+            if (p == null) break; 
+            if (!p.hasFainted()) {
+                alive++;
+            }
+        }
+
+        return alive;
+    }
+
+    // compute dynamic depth
+    private int computeDynamicDepth(BattleView state) {
+        // only reset alive count if still -1 from initializing
+        if (this.startAliveCount < 0) {
+            this.startAliveCount = countAllAlive(state);
+        }
+
+        int currentAlive = countAllAlive(state);
+
+        int fainted = this.startAliveCount - currentAlive;
+        int halfFainted = fainted / 2;
+        int adaptiveDepth = 3 * (1 + halfFainted);
+        adaptiveDepth = Math.max(adaptiveDepth, 5);
+
+        return adaptiveDepth;
     }
 }
 
