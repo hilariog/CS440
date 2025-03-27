@@ -12,6 +12,7 @@ import edu.bu.pas.pokemon.core.Pokemon.PokemonView;
 import edu.bu.pas.pokemon.utils.Pair;
 import edu.bu.pas.pokemon.core.callbacks.*;
 import edu.bu.pas.pokemon.core.SwitchMove;
+import edu.bu.pas.pokemon.core.SwitchMove.SwitchMoveView;
 import edu.bu.pas.pokemon.core.enums.*;
 
 import java.io.InputStream;
@@ -103,20 +104,60 @@ public class TreeTraversalAgent
     public long getMaxThinkingTimePerMoveInMS() { return this.maxThinkingTimePerMoveInMS; }
 
     @Override
-    public Integer chooseNextPokemon(BattleView view)
+    public Integer chooseNextPokemon(BattleView state)
     {
-        // TODO: replace me! This code calculates the first-available pokemon.
-        // It is likely a good idea to expand a bunch of trees with different choices as the active pokemon on your
-        // team, and see which pokemon is your best choice by comparing the values of the root nodes.
+        // Get our team view
+        TeamView myTeam = state.getTeam1View();
+        TeamView oppTeam = state.getTeam2View();
+        int oppTeamIdx = oppTeam.getBattleIdx();
+        int myTeamIdx = myTeam.getBattleIdx();
+        int exploreDepth = this.getMaxDepth();//assumption, possibly make smaller than what we niormally would expand a tree to?
 
-        for(int idx = 0; idx < this.getMyTeamView(view).size(); ++idx)
-        {
-            if(!this.getMyTeamView(view).getPokemonView(idx).hasFainted())
-            {
-                return idx;
+        // get legal switches returns a list for potential switches
+        List<SwitchMoveView> switchMoves = MinimaxTreeBuilder.getLegalSwitches(state, myTeamIdx);
+    
+        if (switchMoves.isEmpty()) {//probably means there were no available switches(i.e. we lost) dont know if we need to indicate that we lost or if it takes care of itself
+            return -1; // only gets here if we lost I think(!! assumption)
+        }
+
+        //init to bad values
+        int bestCandidate = -1;
+        double bestUtility = Double.NEGATIVE_INFINITY;
+        
+        // For each candidate switch move, build a deeper game tree to evaluate the outcome.
+        for (SwitchMoveView switchMove : switchMoves) {
+            // For a switch move, getPotentialEffects() should yield the state after switching.
+            //assume there is at least one outcome.
+            List<Pair<Double, BattleView>> outcome = switchMove.getPotentialEffects(state, myTeamIdx, oppTeamIdx);
+            if (outcome.isEmpty()) {
+                continue; // Skip candidate if no outcome.
+            }
+            BattleView outcomeState = outcome.get(0).getSecond();
+            
+            // Create an anonymous subclass of MinimaxTreeBuilder to access its node hierarchy.
+            MinimaxTreeBuilder treeBuilder = new MinimaxTreeBuilder(outcomeState, exploreDepth, myTeamIdx) {};
+            
+            // Build game tree for next turn. Start with move order node
+            MinimaxTreeBuilder.Node rootNode = treeBuilder.new MoveOrderChanceNode(outcomeState, myTeamIdx, oppTeamIdx);
+            
+            // Evaluate tree using the recursive getValue() methods.
+            double candidateUtility = rootNode.getValue();
+            
+            // Determine candidate index for this switch
+            int candidateIdx;
+            try {
+                candidateIdx = switchMove.getNewActiveIdx();
+            } catch (NumberFormatException e) {
+                candidateIdx = -1; // Fallback value, we lost
+            }
+            
+            // Choose the candidate with the highest evaluated utility.
+            if (candidateUtility > bestUtility) {
+                bestUtility = candidateUtility;
+                bestCandidate = candidateIdx;
             }
         }
-        return null;
+        return bestCandidate;
     }
 
     /**
@@ -180,7 +221,6 @@ public class TreeTraversalAgent
 }
 
 abstract class MinimaxTreeBuilder
-    extends Agent
 {
 
     private final BattleView rootView;
@@ -372,7 +412,7 @@ abstract class MinimaxTreeBuilder
             double correctMoveChance = successChance * (1.0 - confuseChance);
             double selfHitChance = successChance * confuseChance;
             double failChance = 1.0 - successChance;
-            
+
             // Real move goes through
             if (correctMoveChance > 0) {
                 for (Pair<Double, BattleView> outcome : move.getPotentialEffects(state, casterIdx, oppIdx)) {
@@ -498,13 +538,33 @@ abstract class MinimaxTreeBuilder
         return legalMoves;
     }
 
+    public static List<SwitchMove.SwitchMoveView> getLegalSwitches(BattleView state, int playerIdx){
+        List<SwitchMove.SwitchMoveView> legalSwitches = new ArrayList<>();
+
+        TeamView team = state.getTeamView(playerIdx);
+        int replaceIdx = team.getActivePokemonIdx();
+
+        for(int i = 0; i < team.size(); i++){
+            if(i == replaceIdx) continue; //skip the current fainted pokemon
+
+            //get pokemon view for whole team and create a switch move for it
+            PokemonView poke = team.getPokemonView(i);
+            if(!poke.hasFainted()){
+                SwitchMove switchMove = new SwitchMove(i);
+                legalSwitches.add((SwitchMove.SwitchMoveView) switchMove.getView());
+
+            }
+        }
+        return legalSwitches;
+    }
+
 
     private double evaluate(BattleView state) {
         TeamView t1 = state.getTeam1View();
         TeamView t2 = state.getTeam2View();
         
         if(state.isOver()){
-            //in terminal state, return utility value (%%assume getactivepokemonview will return the last active pokemon if a team lost%%)
+            //in terminal state, return utility value (%%assumption assume getactivepokemonview will return the last active pokemon if a team lost%%)
             if(t2.getActivePokemonView().hasFainted()) return 1;
             else return -1;
             //in a terminal state we return either -1 or 1 for win/loss
