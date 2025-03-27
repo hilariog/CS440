@@ -405,9 +405,9 @@ abstract class MinimaxTreeBuilder
             }
 
             // Fails entirely
-            if (successChance < 1.0) {
+            if (failChance > 0) {
                 Node child = new PostTurnChanceNode(state, casterIdx, oppIdx);
-                children.add(new Pair<>((1.0 - successChance), child));
+                children.add(new Pair<>(failChance, child));
             }
 
             return children;
