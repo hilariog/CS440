@@ -172,7 +172,7 @@ public class TreeTraversalAgent
         ExecutorService backgroundThreadManager = Executors.newSingleThreadExecutor();
         MoveView move = null;
         long durationInMs = 0;
-        int dynamicDepth = computeDynamicDepth(battleView);
+        int dynamicDepth = computeDynamicDepth(battleView) - 1;
 
         // Create the searcher
         StochasticTreeSearcher searcherObject = new StochasticTreeSearcher(
@@ -247,9 +247,9 @@ public class TreeTraversalAgent
         int currentAlive = countAllAlive(state);
 
         int fainted = this.startAliveCount - currentAlive;
-        int halfFainted = fainted / 2;
+        int halfFainted = fainted / 4;
         int adaptiveDepth = 3 * (1 + halfFainted);
-        adaptiveDepth = Math.max(adaptiveDepth, 5);
+        adaptiveDepth = Math.max(3, Math.min(adaptiveDepth, 5));
 
         return adaptiveDepth;
     }
