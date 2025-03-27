@@ -8,14 +8,18 @@ import edu.bu.pas.pokemon.core.Team;
 import edu.bu.pas.pokemon.core.Team.TeamView;
 import edu.bu.pas.pokemon.core.Move;
 import edu.bu.pas.pokemon.core.Move.MoveView;
+import edu.bu.pas.pokemon.core.Pokemon.PokemonView;
 import edu.bu.pas.pokemon.utils.Pair;
-
+import edu.bu.pas.pokemon.core.callbacks.*;
+import edu.bu.pas.pokemon.core.SwitchMove;
+import edu.bu.pas.pokemon.core.enums.*;
 
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.ArrayList;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -23,17 +27,9 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.stream.Collectors;
 
-
-import edu.bu.pas.pokemon.core.SwitchMove;
-import edu.bu.pas.pokemon.core.enums.*;
-
-
-import java.util.ArrayList;
-import java.util.List;
-
-
-// JAVA PROJECT IMPORTS
+// JAVA PROJECT IMPORTS^^
 
 
 public class TreeTraversalAgent
@@ -184,7 +180,7 @@ public class TreeTraversalAgent
     }
 }
 
-public class MinimaxTreeBuilder
+abstract class MinimaxTreeBuilder
     extends Agent
 {
 
@@ -258,16 +254,19 @@ public class MinimaxTreeBuilder
             } else if (oppPriority > casterPriority) {
                 children.add(new DeterministicNode(state, oppIdx, casterIdx, false));
             } else {
-                double casterSpeed = state.getTeamView(casterIdx).getActivePokemonView().getStat(Stat.SPD);
+                double casterSpeed = state.getTeamView(casterIdx).getActivePokemonView().getBaseStat(Stat.SPD);
                 NonVolatileStatus casterStatus = state.getTeamView(casterIdx).getActivePokemonView().getNonVolatileStatus();
-                if (casterStatus == NonVolatileStatus.PARALYZED) {
+                if (casterStatus == NonVolatileStatus.PARALYSIS) {
                     casterSpeed *= 0.75;
                 }
-                double oppSpeed = state.getTeamView(oppIdx).getActivePokemonView().getStat(Stat.SPD);
+                double oppSpeed = state.getTeamView(oppIdx).getActivePokemonView().getBaseStat(Stat.SPD);
                 NonVolatileStatus oppStatus = state.getTeamView(oppIdx).getActivePokemonView().getNonVolatileStatus();
-                if (oppStatus == NonVolatileStatus.PARALYZED) {
+                if (oppStatus == NonVolatileStatus.PARALYSIS) {
                     oppSpeed *= 0.75;
                 }
+                //THis should be same as above:
+                // double casterSpeed = state.getTeamView(casterIdx).getActivePokemonView().getCurrentStat(Stat.SPD);
+                // double oppSpeed = state.getTeamView(oppIdx).getActivePokemonView().getCurrentStat(Stat.SPD);
 
                 if (casterSpeed > oppSpeed) {
                     children.add(new DeterministicNode(state, casterIdx, oppIdx, true));
@@ -334,7 +333,7 @@ public class MinimaxTreeBuilder
         public double getValue() {
             double total = 0.0;
             for (Pair<Double, Node> branch : getProbabilisticChildren()) {
-                total += branch.getKey() * branch.getValue().getValue();
+                total += branch.getFirst() * branch.getSecond().getValue();
             }
             return total;
         }
@@ -342,14 +341,14 @@ public class MinimaxTreeBuilder
         @Override
         public List<Node> getChildren() {
             return getProbabilisticChildren().stream()
-                    .map(Pair::getValue)
-                    .toList();
+                    .map(Pair::getSecond)
+                    .collect(Collectors.toList());
         }
 
         private List<Pair<Double, Node>> getProbabilisticChildren() {
             List<Pair<Double, Node>> children = new ArrayList<>();
 
-            Pokemon.PokemonView pokemon = state.getTeamView(casterIdx).getActivePokemonView();
+            PokemonView pokemon = state.getTeamView(casterIdx).getActivePokemonView();
             NonVolatileStatus status = pokemon.getNonVolatileStatus();
 
             double successChance;
@@ -359,26 +358,26 @@ public class MinimaxTreeBuilder
                 successChance = 0.0;
             } else if (status == NonVolatileStatus.FREEZE) {
                 successChance = 0.0;
-            } else if (status) {
+            } else if (status == NonVolatileStatus.PARALYSIS) {
                 successChance = 0.75;
-            } else if (pokemon.hasFlad(Flag.FLINCHED)) {
+            } else if (pokemon.getFlag(Flag.FLINCHED)) {
                 successChance = 0.0;
             } else {
                 successChance = 1.0;
             }
 
-            if (pokemon.hasFlag(Flag.CONFUSED)) {
+            if (pokemon.getFlag(Flag.CONFUSED)) {
                 confuseChance = 0.5;
             }
 
             double correctMoveChance = successChance * (1.0 - confuseChance);
-            double selfHitChance = usableChance * confuseChance;
+            double selfHitChance = successChance * confuseChance;
 
             // Real move goes through
             if (correctMoveChance > 0) {
                 for (Pair<Double, BattleView> outcome : move.getPotentialEffects(state, casterIdx, oppIdx)) {
-                    Node child = new PostTurnChanceNode(outcome.getValue(), casterIdx, oppIdx);
-                    children.add(new Pair<>(correctMoveChance * outcome.getKey(), child));
+                    Node child = new PostTurnChanceNode(outcome.getSecond(), casterIdx, oppIdx);
+                    children.add(new Pair<>(correctMoveChance * outcome.getFirst(), child));
                 }
             }
 
@@ -400,8 +399,8 @@ public class MinimaxTreeBuilder
 
                 MoveView selfHitView = hurtYourselfMove.getView();
                 for (Pair<Double, BattleView> outcome : selfHitView.getPotentialEffects(state, casterIdx, oppIdx)) {
-                    Node child = new PostTurnChanceNode(outcome.getValue(), casterIdx, oppIdx);
-                    children.add(new Pair<>(selfHitChance * outcome.getKey(), child));
+                    Node child = new PostTurnChanceNode(outcome.getSecond(), casterIdx, oppIdx);
+                    children.add(new Pair<>(selfHitChance * outcome.getFirst(), child));
                 }
             }
 
@@ -430,40 +429,65 @@ public class MinimaxTreeBuilder
         public double getValue() {
             if (isTerminal()) {
                 return evaluate(state);
+            }else{//if not terminal, this gets the average value of all possible resolutions
+                List<Node> children = getChildren();
+                double total = 0.0;
+                for (Node child : children) {
+                    total += child.getValue();
+                }
+                return total / children.size();
             }
-
-            return getChildren().get(0).getValue();
         }
 
         @Override
         public List<Node> getChildren() {
+            /*
+            ApplyPostTurnDocumentation from API:
+            "A method to get all of the ways post-turn logic can be applied to this Battle.BattleView. 
+            Note that this call may invoke an Agent's chooseNextPokemon method in the presence of fainted pokemon. 
+            If no pokemon has fainted, this method will return a list with only one element in it. 
+            If a pokemon faints, all choices of replacements are swapped in to generate multiple Battle.BattleView instances. 
+            If two pokemon faint, then the cross-product of potential swaps across both teams will be used to generate Battle.BattleView instances.
+            Returns:
+            All Battle.BattleView instances that could occur after post-turn logic is applied. 
+            This includes all ways of replacing fainted pokemon across both teams."
+            */
+
             List<Node> children = new ArrayList<>();
-            children.add(new MoveOrderChanceNode(state, casterIdx, oppIdx)); // For now assume deterministic post-turn
-            return children;
+            List<BattleView> postTurnOutcomes = state.applyPostTurnConditions();//get outcomes
+
+            //create node for each child outcome
+            for (BattleView outcome : postTurnOutcomes) {
+                children.add(new MoveOrderChanceNode(outcome, casterIdx, oppIdx));//add to return list
+            }
+            if (children.isEmpty()) {
+                children.add(new MoveOrderChanceNode(state, casterIdx, oppIdx));
+            }
+            return children;    
         }
     }
 
     public static List<Move.MoveView> getLegalMoves(BattleView state, int playerIdx) {
         List<Move.MoveView> legalMoves = new ArrayList<>();
 
-        Team.TeamView currentTeam = state.getTeamView(playerIdx);
-        Pokemon.PokemonView active = currentTeam.getActivePokemonView();
+        TeamView currentTeam = state.getTeamView(playerIdx);
+        PokemonView active = currentTeam.getActivePokemonView();
 
         // Add attack/status moves
-        for (Move move : active.getAvailableMoves()) {
+        for (MoveView move : active.getAvailableMoves()) {
             if (move.getPP() != null && move.getPP() > 0) {
-                legalMoves.add(move.getView());
+                legalMoves.add(move);
             }
         }
 
         // Add switch moves only if the active Pokémon is NOT trapped
-        if (!active.hasFlag(Flag.TRAPPED)) {
+        if (!active.getFlag(Flag.TRAPPED)) {
             int activeIdx = currentTeam.getActivePokemonIdx();
 
             for (int i = 0; i < currentTeam.size(); i++) {
                 if (i == activeIdx) continue;
 
-                Pokemon.PokemonView poke = currentTeam.getPokemonView(i);
+                PokemonView poke = currentTeam.getPokemonView(i);
                 if (!poke.hasFainted()) {
                     SwitchMove switchMove = new SwitchMove(i);
                     legalMoves.add(switchMove.getView());
@@ -489,12 +513,12 @@ public class MinimaxTreeBuilder
             int t1Hp = 0;
             int t2Hp = 0;
             while(t2.getPokemonView(i) != null){
-                t2Hp += t2.getPokemonView(i).getBaseStat(Stat.HP);
+                t2Hp += t2.getPokemonView(i).getCurrentStat(Stat.HP);
                 i++;
             }
             i = 0;
             while(t1.getPokemonView(i) != null){
-                t1Hp += t1.getPokemonView(i).getBaseStat(Stat.HP);
+                t1Hp += t1.getPokemonView(i).getCurrentStat(Stat.HP);
                 i++;
             }
             return (((t1Hp / (t1Hp + t2Hp)) * 2) - 1);
