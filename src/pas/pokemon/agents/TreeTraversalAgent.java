@@ -36,7 +36,7 @@ public class TreeTraversalAgent
     extends Agent
 {
 	private class StochasticTreeSearcher
-        extends Object
+        extends MinimaxTreeBuilder
         implements Callable<Pair<MoveView, Long> >  // so this object can be run in a background thread
 	{
 
@@ -45,11 +45,13 @@ public class TreeTraversalAgent
 		private final BattleView rootView;
         private final int maxDepth;
         private final int myTeamIdx;
+        
 
         // If you change the parameters of the constructor, you will also have to change
         // the getMove(...) method of TreeTraversalAgent!
 		public StochasticTreeSearcher(BattleView rootView, int maxDepth, int myTeamIdx)
         {
+            super(rootView, maxDepth, myTeamIdx);
             this.rootView = rootView;
             this.maxDepth = maxDepth;
             this.myTeamIdx = myTeamIdx;
@@ -239,11 +241,13 @@ abstract class MinimaxTreeBuilder
         protected BattleView state;
         protected int casterIdx;
         protected int oppIdx;
+        protected int depth;
 
-        public Node(BattleView state, int casterIdx, int oppIdx) {
+        public Node(BattleView state, int casterIdx, int oppIdx, int depth) {
             this.state = state;
             this.casterIdx = casterIdx;
             this.oppIdx = oppIdx;
+            this.depth = depth;
         }
 
         public abstract boolean isTerminal();
@@ -252,13 +256,17 @@ abstract class MinimaxTreeBuilder
     }
 
     public class MoveOrderChanceNode extends Node {
-        public MoveOrderChanceNode(BattleView state, int casterIdx, int oppIdx) {
-            super(state, casterIdx, oppIdx);
+        public MoveOrderChanceNode(BattleView state, int casterIdx, int oppIdx, int depth) {
+            super(state, casterIdx, oppIdx, depth);
         }
 
         @Override
         public boolean isTerminal() {
-            return state.isOver();
+            if (state.isOver() || depth >= maxDepth){
+                return true;
+            }
+            return false;
+            return false;
         }
 
         @Override
@@ -267,10 +275,11 @@ abstract class MinimaxTreeBuilder
                 return evaluate(state);
             }
 
-            return getChildren().stream()
-                    .mapToDouble(Node::getValue)
-                    .average()
-                    .orElse(0);
+            List<Node> children = getChildren();
+            if (children.isEmpty()) {
+                return evaluate(state);
+            }
+            return children.stream().mapToDouble(Node::getValue).average().orElse(0.0);
         }
 
         @Override
@@ -289,9 +298,9 @@ abstract class MinimaxTreeBuilder
             int oppPriority = (oppMove != null) ? oppMove.getPriority() : 0;
 
             if (casterPriority > oppPriority) {
-                children.add(new DeterministicNode(state, casterIdx, oppIdx, true));
+                children.add(new DeterministicNode(state, casterIdx, oppIdx, true, depth + 1));
             } else if (oppPriority > casterPriority) {
-                children.add(new DeterministicNode(state, oppIdx, casterIdx, false));
+                children.add(new DeterministicNode(state, oppIdx, casterIdx, false, depth + 1));
             } else {
                 double casterSpeed = state.getTeamView(casterIdx).getActivePokemonView().getBaseStat(Stat.SPD);
                 NonVolatileStatus casterStatus = state.getTeamView(casterIdx).getActivePokemonView().getNonVolatileStatus();
@@ -308,12 +317,12 @@ abstract class MinimaxTreeBuilder
                 // double oppSpeed = state.getTeamView(oppIdx).getActivePokemonView().getCurrentStat(Stat.SPD);
 
                 if (casterSpeed > oppSpeed) {
-                    children.add(new DeterministicNode(state, casterIdx, oppIdx, true));
+                    children.add(new DeterministicNode(state, casterIdx, oppIdx, true, depth + 1));
                 } else if (oppSpeed > casterSpeed) {
-                    children.add(new DeterministicNode(state, oppIdx, casterIdx, false));
+                    children.add(new DeterministicNode(state, oppIdx, casterIdx, false, depth + 1));
                 } else {
-                    children.add(new DeterministicNode(state, casterIdx, oppIdx, true));
-                    children.add(new DeterministicNode(state, oppIdx, casterIdx, false));
+                    children.add(new DeterministicNode(state, casterIdx, oppIdx, true, depth + 1));
+                    children.add(new DeterministicNode(state, oppIdx, casterIdx, false, depth + 1));
                 }
             }
 
@@ -324,32 +333,50 @@ abstract class MinimaxTreeBuilder
     public class DeterministicNode extends Node {
         private final boolean isMaximizing;
 
-        public DeterministicNode(BattleView state, int casterIdx, int oppIdx, boolean isMaximizing) {
-            super(state, casterIdx, oppIdx);
+        public DeterministicNode(BattleView state, int casterIdx, int oppIdx, boolean isMaximizing, int depth) {
+            super(state, casterIdx, oppIdx, depth);
             this.isMaximizing = isMaximizing;
         }
 
         @Override
         public boolean isTerminal() {
-            return state.isOver();
+            if (state.isOver() || depth >= maxDepth){
+                return true;
+            }
+            return false;
         }
 
-        @Override
+         @Override
         public double getValue() {
             if (isTerminal()) {
                 return evaluate(state);
             }
 
-            return isMaximizing
-                ? getChildren().stream().mapToDouble(Node::getValue).max().orElse(Double.NEGATIVE_INFINITY)
-                : getChildren().stream().mapToDouble(Node::getValue).min().orElse(Double.POSITIVE_INFINITY);
+            double val;
+            List<Node> children = getChildren();
+            if (children.isEmpty()) {
+                return evaluate(state);
+            }
+
+            if (isMaximizing) {
+                val = children.stream()
+                              .mapToDouble(Node::getValue)
+                              .max()
+                              .orElse(Double.NEGATIVE_INFINITY);
+            } else {
+                val = children.stream()
+                              .mapToDouble(Node::getValue)
+                              .min()
+                              .orElse(Double.POSITIVE_INFINITY);
+            }
+            return val;
         }
 
         @Override
         public List<Node> getChildren() {
             List<Node> children = new ArrayList<>();
             for (MoveView move : getLegalMoves(state, casterIdx)) {
-                children.add(new MoveResolutionChanceNode(state, casterIdx, oppIdx, move));
+                children.add(new MoveResolutionChanceNode(state, casterIdx, oppIdx, depth + 1, move));
             }
             return children;
         }
@@ -358,20 +385,28 @@ abstract class MinimaxTreeBuilder
     public class MoveResolutionChanceNode extends Node {
         private final MoveView move;
 
-        public MoveResolutionChanceNode(BattleView state, int casterIdx, int oppIdx, MoveView move) {
-            super(state, casterIdx, oppIdx);
+        public MoveResolutionChanceNode(BattleView state, int casterIdx, int oppIdx, int depth, MoveView move) {
+            super(state, casterIdx, oppIdx, depth);
             this.move = move;
         }
 
         @Override
         public boolean isTerminal() {
-            return state.isOver();
+            if (state.isOver() || depth >= maxDepth){
+                return true;
+            }
+            return false;
         }
 
         @Override
         public double getValue() {
+            if (isTerminal()) {
+                return evaluate(state);
+            }
+
             double total = 0.0;
-            for (Pair<Double, Node> branch : getProbabilisticChildren()) {
+            List<Pair<Double, Node>> branches = getProbabilisticChildren();
+            for (Pair<Double, Node> branch : branches) {
                 total += branch.getFirst() * branch.getSecond().getValue();
             }
             return total;
@@ -416,7 +451,7 @@ abstract class MinimaxTreeBuilder
             // Real move goes through
             if (correctMoveChance > 0) {
                 for (Pair<Double, BattleView> outcome : move.getPotentialEffects(state, casterIdx, oppIdx)) {
-                    Node child = new PostTurnChanceNode(outcome.getSecond(), casterIdx, oppIdx);
+                    Node child = new PostTurnChanceNode(outcome.getSecond(), casterIdx, oppIdx, depth + 1);
                     children.add(new Pair<>(correctMoveChance * outcome.getFirst(), child));
                 }
             }
@@ -439,14 +474,14 @@ abstract class MinimaxTreeBuilder
 
                 MoveView selfHitView = hurtYourselfMove.getView();
                 for (Pair<Double, BattleView> outcome : selfHitView.getPotentialEffects(state, casterIdx, oppIdx)) {
-                    Node child = new PostTurnChanceNode(outcome.getSecond(), casterIdx, oppIdx);
+                    Node child = new PostTurnChanceNode(outcome.getSecond(), casterIdx, oppIdx, depth + 1);
                     children.add(new Pair<>(selfHitChance * outcome.getFirst(), child));
                 }
             }
 
             // Fails entirely
             if (failChance > 0) {
-                Node child = new PostTurnChanceNode(state, casterIdx, oppIdx);
+                Node child = new PostTurnChanceNode(state, casterIdx, oppIdx, depth + 1);
                 children.add(new Pair<>(failChance, child));
             }
 
@@ -456,27 +491,34 @@ abstract class MinimaxTreeBuilder
 
 
     public class PostTurnChanceNode extends Node {
-        public PostTurnChanceNode(BattleView state, int casterIdx, int oppIdx) {
-            super(state, casterIdx, oppIdx);
+        public PostTurnChanceNode(BattleView state, int casterIdx, int oppIdx, int depth) {
+            super(state, casterIdx, oppIdx, depth);
         }
 
         @Override
         public boolean isTerminal() {
-            return state.isOver();
+            if (state.isOver() || depth >= maxDepth){
+                return true;
+            }
+            return false;
         }
 
         @Override
         public double getValue() {
             if (isTerminal()) {
                 return evaluate(state);
-            }else{//if not terminal, this gets the average value of all possible resolutions
-                List<Node> children = getChildren();
-                double total = 0.0;
-                for (Node child : children) {
-                    total += child.getValue();
-                }
-                return total / children.size();
             }
+
+            List<Node> children = getChildren();
+            if (children.isEmpty()) {
+                return evaluate(state);
+            }
+        
+            double total = 0.0;
+            for (Node child : children) {
+                total += child.getValue();
+            }
+            return total / children.size();
         }
 
         @Override
@@ -498,10 +540,10 @@ abstract class MinimaxTreeBuilder
 
             //create node for each child outcome
             for (BattleView outcome : postTurnOutcomes) {
-                children.add(new MoveOrderChanceNode(outcome, casterIdx, oppIdx));//add to return list
+                children.add(new MoveOrderChanceNode(outcome, casterIdx, oppIdx, depth + 1));//add to return list
             }
             if (children.isEmpty()) {
-                children.add(new MoveOrderChanceNode(state, casterIdx, oppIdx));
+                children.add(new MoveOrderChanceNode(state, casterIdx, oppIdx, depth + 1));
             }
             return children;    
         }
