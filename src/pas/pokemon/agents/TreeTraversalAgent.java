@@ -243,8 +243,15 @@ abstract class MinimaxTreeBuilder
             this.depth = depth;
         }
 
+        public double getValue() {
+            return getValue(Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY);
+        }
+
+        public double getValue(double alpha, double beta) { 
+            return getValue();
+        }
+
         public abstract boolean isTerminal();
-        public abstract double getValue();
         public abstract List<Node> getChildren();
     }
 
@@ -431,8 +438,15 @@ abstract class MinimaxTreeBuilder
             return state.isOver() || depth >= maxDepth;
         }
 
+        // The normal getValue() calls alpha-beta version with initial alpha/beta
         @Override
         public double getValue() {
+            return getValue(Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY);
+        }
+
+        // The alpha-beta version
+        @Override
+        public double getValue(double alpha, double beta) {
             if (isTerminal()) {
                 return evaluate(state);
             }
@@ -443,15 +457,27 @@ abstract class MinimaxTreeBuilder
             }
 
             if (isMaximizing) {
-                return children.stream()
-                        .mapToDouble(Node::getValue)
-                        .max()
-                        .orElse(Double.NEGATIVE_INFINITY);
+                double value = Double.NEGATIVE_INFINITY;
+                for (Node child : children) {
+                    value = Math.max(value, child.getValue(alpha, beta));
+                    alpha = Math.max(alpha, value);
+                    if (alpha >= beta) {
+                        // PRUNE
+                        break;
+                    }
+                }
+                return value;
             } else {
-                return children.stream()
-                        .mapToDouble(Node::getValue)
-                        .min()
-                        .orElse(Double.POSITIVE_INFINITY);
+                double value = Double.POSITIVE_INFINITY;
+                for (Node child : children) {
+                    value = Math.min(value, child.getValue(alpha, beta));
+                    beta  = Math.min(beta, value);
+                    if (alpha >= beta) {
+                        // PRUNE
+                        break;
+                    }
+                }
+                return value;
             }
         }
 
