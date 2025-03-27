@@ -31,7 +31,6 @@ import java.util.stream.Collectors;
 
 // JAVA PROJECT IMPORTS^^
 
-
 public class TreeTraversalAgent
     extends Agent
 {
@@ -372,7 +371,8 @@ abstract class MinimaxTreeBuilder
 
             double correctMoveChance = successChance * (1.0 - confuseChance);
             double selfHitChance = successChance * confuseChance;
-
+            double failChance = 1.0 - successChance;
+            
             // Real move goes through
             if (correctMoveChance > 0) {
                 for (Pair<Double, BattleView> outcome : move.getPotentialEffects(state, casterIdx, oppIdx)) {
