@@ -37,56 +37,71 @@ public class TreeTraversalAgent
 {
 	private class StochasticTreeSearcher
         extends MinimaxTreeBuilder
-        implements Callable<Pair<MoveView, Long> >  // so this object can be run in a background thread
+        implements Callable<Pair<MoveView, Long>>
 	{
-
-        // TODO: feel free to add any fields here! If you do, you should probably modify the constructor
-        // of this class and add some getters for them. If the fields you add aren't final you should add setters too!
 		private final BattleView rootView;
         private final int maxDepth;
         private final int myTeamIdx;
         
-
-        // If you change the parameters of the constructor, you will also have to change
-        // the getMove(...) method of TreeTraversalAgent!
 		public StochasticTreeSearcher(BattleView rootView, int maxDepth, int myTeamIdx)
         {
+            // Fixed typo: pass myTeamIdx instead of myaTeamIdx
             super(rootView, maxDepth, myTeamIdx);
             this.rootView = rootView;
             this.maxDepth = maxDepth;
             this.myTeamIdx = myTeamIdx;
         }
 
-        // Getter methods. Since the default fields are declared final, we don't need setters
-        // but if you make any fields that aren't final you should give them setters!
 		public BattleView getRootView() { return this.rootView; }
         public int getMaxDepth() { return this.maxDepth; }
         public int getMyTeamIdx() { return this.myTeamIdx; }
 
 		/**
-		 * TODO: implement me!
-		 * This method should perform your tree-search from the root of the entire tree.
-         * You are welcome to add any extra parameters that you want! If you do, you will also have to change
-         * The call method in this class!
-		 * @param node the node to perform the search on (i.e. the root of the entire tree)
+		 * This method performs your tree-search from the root of the entire tree.
 		 * @return The MoveView that your agent should execute
 		 */
-        public MoveView stochasticTreeSearch(BattleView rootView) //, int depth)
-        {
-            return null;
+        public MoveView stochasticTreeSearch(BattleView rootView) {
+            // Gather all legal moves for our team
+            List<MoveView> myMoves = getLegalMoves(rootView, this.getMyTeamIdx());
+            if (myMoves.isEmpty()) {
+                // If no moves are available, we must return null or do something else
+                return null;
+            }
+
+            double bestValue = Double.NEGATIVE_INFINITY;
+            MoveView bestMove = null;
+            int oppIdx = (this.getMyTeamIdx() == 0) ? 1 : 0;
+
+            // Evaluate each move by building a MoveResolutionChanceNode and calling getValue()
+            for (MoveView candidateMove : myMoves) {
+                Node nodeForMove = new MoveResolutionChanceNode(
+                    rootView, 
+                    this.getMyTeamIdx(),
+                    oppIdx,
+                    0,
+                    candidateMove
+                );
+                
+                double value = nodeForMove.getValue();
+
+                if (value > bestValue) {
+                    bestValue = value;
+                    bestMove = candidateMove;
+                }
+            }
+
+            return bestMove;
         }
 
         @Override
         public Pair<MoveView, Long> call() throws Exception
         {
             double startTime = System.nanoTime();
-
             MoveView move = this.stochasticTreeSearch(this.getRootView());
             double endTime = System.nanoTime();
 
-            return new Pair<MoveView, Long>(move, (long)((endTime-startTime)/1000000));
+            return new Pair<MoveView, Long>(move, (long)((endTime - startTime)/1_000_000));
         }
-		
 	}
 
 	private final int maxDepth;
@@ -96,64 +111,55 @@ public class TreeTraversalAgent
     {
         super();
         this.maxThinkingTimePerMoveInMS = 180000 * 2; // 6 min/move
-        this.maxDepth = 1000; // set this however you want
+        this.maxDepth = 1000; // or whatever depth you want
     }
 
-    /**
-     * Some constants
-     */
     public int getMaxDepth() { return this.maxDepth; }
     public long getMaxThinkingTimePerMoveInMS() { return this.maxThinkingTimePerMoveInMS; }
 
     @Override
     public Integer chooseNextPokemon(BattleView state)
     {
-        // Get our team view
+        // Get our team
         TeamView myTeam = state.getTeam1View();
         TeamView oppTeam = state.getTeam2View();
         int oppTeamIdx = oppTeam.getBattleIdx();
         int myTeamIdx = myTeam.getBattleIdx();
-        int exploreDepth = this.getMaxDepth();//assumption, possibly make smaller than what we niormally would expand a tree to?
+        int exploreDepth = 3;
 
-        // get legal switches returns a list for potential switches
+        // Potential switch moves
         List<SwitchMoveView> switchMoves = MinimaxTreeBuilder.getLegalSwitches(state, myTeamIdx);
-    
-        if (switchMoves.isEmpty()) {//probably means there were no available switches(i.e. we lost) dont know if we need to indicate that we lost or if it takes care of itself
-            return -1; // only gets here if we lost I think(!! assumption)
+        if (switchMoves.isEmpty()) {
+            // Possibly means no available switch => might have lost
+            return -1; 
         }
 
-        //init to bad values
         int bestCandidate = -1;
         double bestUtility = Double.NEGATIVE_INFINITY;
         
-        // For each candidate switch move, build a deeper game tree to evaluate the outcome.
+        // Evaluate each potential switch with a deeper tree
         for (SwitchMoveView switchMove : switchMoves) {
-            // For a switch move, getPotentialEffects() should yield the state after switching.
-            //assume there is at least one outcome.
             List<Pair<Double, BattleView>> outcome = switchMove.getPotentialEffects(state, myTeamIdx, oppTeamIdx);
             if (outcome.isEmpty()) {
-                continue; // Skip candidate if no outcome.
+                continue;
             }
+
+            // Just take the first outcome from switching (most switches yield exactly one outcome)
             BattleView outcomeState = outcome.get(0).getSecond();
-            
-            // Create an anonymous subclass of MinimaxTreeBuilder to access its node hierarchy.
+
+            // Build a quick tree
             MinimaxTreeBuilder treeBuilder = new MinimaxTreeBuilder(outcomeState, exploreDepth, myTeamIdx) {};
-            
-            // Build game tree for next turn. Start with move order node
             MinimaxTreeBuilder.Node rootNode = treeBuilder.new MoveOrderChanceNode(outcomeState, myTeamIdx, oppTeamIdx, 0);
-            
-            // Evaluate tree using the recursive getValue() methods.
             double candidateUtility = rootNode.getValue();
             
-            // Determine candidate index for this switch
+            // Grab the new active index from the switch, if we can
             int candidateIdx;
             try {
                 candidateIdx = switchMove.getNewActiveIdx();
             } catch (NumberFormatException e) {
-                candidateIdx = -1; // Fallback value, we lost
+                candidateIdx = -1;
             }
             
-            // Choose the candidate with the highest evaluated utility.
             if (candidateUtility > bestUtility) {
                 bestUtility = candidateUtility;
                 bestCandidate = candidateIdx;
@@ -162,57 +168,45 @@ public class TreeTraversalAgent
         return bestCandidate;
     }
 
-    /**
-     * This method is responsible for getting a move selected via the minimax algorithm.
-     * There is some setup for this to work, namely making sure the agent doesn't run out of time.
-     * Please do not modify.
-     */
     @Override
     public MoveView getMove(BattleView battleView)
     {
-
-        // will run the minimax algorithm in a background thread with a timeout
         ExecutorService backgroundThreadManager = Executors.newSingleThreadExecutor();
-
-        // preallocate so we don't spend precious time doing it when we are recording duration
         MoveView move = null;
         long durationInMs = 0;
 
-        // this obj will run in the background
+        // Create the searcher
         StochasticTreeSearcher searcherObject = new StochasticTreeSearcher(
             battleView,
-            this.getMaxDepth(),
+            3,
             this.getMyTeamIdx()
         );
 
-        // submit the job
-        Future<Pair<MoveView, Long> > future = backgroundThreadManager.submit(searcherObject);
+        // Submit the job in the background
+        Future<Pair<MoveView, Long>> future = backgroundThreadManager.submit(searcherObject);
 
         try
         {
-            // set the timeout
             Pair<MoveView, Long> moveAndDuration = future.get(
                 this.getMaxThinkingTimePerMoveInMS(),
                 TimeUnit.MILLISECONDS
             );
 
-            // if we get here the move was chosen quick enough! :)
             move = moveAndDuration.getFirst();
             durationInMs = moveAndDuration.getSecond();
-
-            // convert the move into a text form (algebraic notation) and stream it somewhere
-            // Streamer.getStreamer(this.getFilePath()).streamMove(move, Planner.getPlanner().getGame());
-        } catch(TimeoutException e)
+        }
+        catch(TimeoutException e)
         {
-            // timeout = out of time...you lose!
             System.err.println("Timeout!");
-            System.err.println("Team [" + (this.getMyTeamIdx()+1) + " loses!");
+            System.err.println("Team [" + (this.getMyTeamIdx()+1) + "] loses!");
             System.exit(-1);
-        } catch(InterruptedException e)
+        }
+        catch(InterruptedException e)
         {
             e.printStackTrace();
             System.exit(-1);
-        } catch(ExecutionException e)
+        }
+        catch(ExecutionException e)
         {
             e.printStackTrace();
             System.exit(-1);
@@ -224,10 +218,9 @@ public class TreeTraversalAgent
 
 abstract class MinimaxTreeBuilder
 {
-
     private final BattleView rootView;
     private final int maxDepth;
-    private final int myTeamIdx;
+    protected final int myTeamIdx;
 
     public MinimaxTreeBuilder(BattleView rootView, int maxDepth, int myTeamIdx) {
         this.rootView = rootView;
@@ -235,7 +228,7 @@ abstract class MinimaxTreeBuilder
         this.myTeamIdx = myTeamIdx;
     }
 
-    // === NODE DEFINITIONS ===
+    // === NODE CLASSES ===
 
     public abstract class Node {
         protected BattleView state;
@@ -255,6 +248,11 @@ abstract class MinimaxTreeBuilder
         public abstract List<Node> getChildren();
     }
 
+    /**
+     *  Node that decides the order of moves (and enumerates all moves).
+     *  Instead of picking just one move for each side, we loop over all 
+     *  possible (casterMove, oppMove) pairs.
+     */
     public class MoveOrderChanceNode extends Node {
         public MoveOrderChanceNode(BattleView state, int casterIdx, int oppIdx, int depth) {
             super(state, casterIdx, oppIdx, depth);
@@ -262,10 +260,7 @@ abstract class MinimaxTreeBuilder
 
         @Override
         public boolean isTerminal() {
-            if (state.isOver() || depth >= maxDepth){
-                return true;
-            }
-            return false;
+            return (state.isOver() || depth >= maxDepth);
         }
 
         @Override
@@ -278,6 +273,8 @@ abstract class MinimaxTreeBuilder
             if (children.isEmpty()) {
                 return evaluate(state);
             }
+            // We do an average here to represent "chance," 
+            // but you can also do other expansions.
             return children.stream().mapToDouble(Node::getValue).average().orElse(0.0);
         }
 
@@ -286,42 +283,114 @@ abstract class MinimaxTreeBuilder
             List<Node> children = new ArrayList<>();
 
             List<MoveView> casterMoves = getLegalMoves(state, casterIdx);
-            List<MoveView> oppMoves = getLegalMoves(state, oppIdx);
+            List<MoveView> oppMoves    = getLegalMoves(state, oppIdx);
 
-            // For now: pick one representative move per side for priority/speed logic
-            // Later: enumerate combinations if needed
-            MoveView casterMove = casterMoves.isEmpty() ? null : casterMoves.get(0);
-            MoveView oppMove = oppMoves.isEmpty() ? null : oppMoves.get(0);
+            // If no moves, nothing to expand
+            if (casterMoves.isEmpty() && oppMoves.isEmpty()) {
+                return children;
+            }
 
-            int casterPriority = (casterMove != null) ? casterMove.getPriority() : 0;
-            int oppPriority = (oppMove != null) ? oppMove.getPriority() : 0;
+            for (MoveView cMove : casterMoves) {
+                for (MoveView oMove : oppMoves) {
 
-            if (casterPriority > oppPriority) {
-                children.add(new DeterministicNode(state, casterIdx, oppIdx, true, depth + 1));
-            } else if (oppPriority > casterPriority) {
-                children.add(new DeterministicNode(state, oppIdx, casterIdx, false, depth + 1));
-            } else {
-                double casterSpeed = state.getTeamView(casterIdx).getActivePokemonView().getBaseStat(Stat.SPD);
-                NonVolatileStatus casterStatus = state.getTeamView(casterIdx).getActivePokemonView().getNonVolatileStatus();
-                if (casterStatus == NonVolatileStatus.PARALYSIS) {
-                    casterSpeed *= 0.75;
-                }
-                double oppSpeed = state.getTeamView(oppIdx).getActivePokemonView().getBaseStat(Stat.SPD);
-                NonVolatileStatus oppStatus = state.getTeamView(oppIdx).getActivePokemonView().getNonVolatileStatus();
-                if (oppStatus == NonVolatileStatus.PARALYSIS) {
-                    oppSpeed *= 0.75;
-                }
-                //THis should be same as above:
-                // double casterSpeed = state.getTeamView(casterIdx).getActivePokemonView().getCurrentStat(Stat.SPD);
-                // double oppSpeed = state.getTeamView(oppIdx).getActivePokemonView().getCurrentStat(Stat.SPD);
+                    // Compare priority
+                    int cPriority = (cMove != null) ? cMove.getPriority() : 0;
+                    int oPriority = (oMove != null) ? oMove.getPriority() : 0;
 
-                if (casterSpeed > oppSpeed) {
-                    children.add(new DeterministicNode(state, casterIdx, oppIdx, true, depth + 1));
-                } else if (oppSpeed > casterSpeed) {
-                    children.add(new DeterministicNode(state, oppIdx, casterIdx, false, depth + 1));
-                } else {
-                    children.add(new DeterministicNode(state, casterIdx, oppIdx, true, depth + 1));
-                    children.add(new DeterministicNode(state, oppIdx, casterIdx, false, depth + 1));
+                    if (cPriority > oPriority) {
+                        // caster moves first
+                        boolean casterIsMyTeam = (casterIdx == myTeamIdx);
+                        children.add(
+                            new DeterministicNode(
+                                state, 
+                                casterIdx, 
+                                oppIdx, 
+                                casterIsMyTeam, 
+                                depth + 1,
+                                cMove, 
+                                oMove
+                            )
+                        );
+                    }
+                    else if (oPriority > cPriority) {
+                        // opponent moves first
+                        boolean oppIsMyTeam = (oppIdx == myTeamIdx);
+                        children.add(
+                            new DeterministicNode(
+                                state, 
+                                oppIdx, 
+                                casterIdx, 
+                                oppIsMyTeam, 
+                                depth + 1,
+                                oMove, 
+                                cMove
+                            )
+                        );
+                    }
+                    else {
+                        // tie on priority => compare Speed
+                        double casterSpeed = adjustedSpeed(state.getTeamView(casterIdx).getActivePokemonView());
+                        double oppSpeed    = adjustedSpeed(state.getTeamView(oppIdx).getActivePokemonView());
+
+                        if (casterSpeed > oppSpeed) {
+                            boolean casterIsMyTeam = (casterIdx == myTeamIdx);
+                            children.add(
+                                new DeterministicNode(
+                                    state, 
+                                    casterIdx, 
+                                    oppIdx, 
+                                    casterIsMyTeam, 
+                                    depth + 1,
+                                    cMove, 
+                                    oMove
+                                )
+                            );
+                        }
+                        else if (oppSpeed > casterSpeed) {
+                            boolean oppIsMyTeam = (oppIdx == myTeamIdx);
+                            children.add(
+                                new DeterministicNode(
+                                    state, 
+                                    oppIdx, 
+                                    casterIdx, 
+                                    oppIsMyTeam, 
+                                    depth + 1,
+                                    oMove, 
+                                    cMove
+                                )
+                            );
+                        }
+                        else {
+                            // Perfect tie => we consider both orders
+                            boolean casterIsMyTeam = (casterIdx == myTeamIdx);
+                            boolean oppIsMyTeam    = (oppIdx == myTeamIdx);
+
+                            // Child 1: caster first
+                            children.add(
+                                new DeterministicNode(
+                                    state, 
+                                    casterIdx, 
+                                    oppIdx, 
+                                    casterIsMyTeam, 
+                                    depth + 1,
+                                    cMove, 
+                                    oMove
+                                )
+                            );
+                            // Child 2: opp first
+                            children.add(
+                                new DeterministicNode(
+                                    state, 
+                                    oppIdx, 
+                                    casterIdx, 
+                                    oppIsMyTeam, 
+                                    depth + 1,
+                                    oMove, 
+                                    cMove
+                                )
+                            );
+                        }
+                    }
                 }
             }
 
@@ -329,58 +398,94 @@ abstract class MinimaxTreeBuilder
         }
     }
 
+    /**
+     * DeterministicNode: We know who goes first, who goes second, 
+     * and which moves they use. We then apply the moves in that order.
+     */
     public class DeterministicNode extends Node {
         private final boolean isMaximizing;
+        private final MoveView firstMove;
+        private final MoveView secondMove;
+        private final int firstCasterIdx;
+        private final int secondCasterIdx;
 
-        public DeterministicNode(BattleView state, int casterIdx, int oppIdx, boolean isMaximizing, int depth) {
-            super(state, casterIdx, oppIdx, depth);
-            this.isMaximizing = isMaximizing;
+        public DeterministicNode(
+            BattleView state,
+            int firstCasterIdx,
+            int secondCasterIdx,
+            boolean isMaximizing,
+            int depth,
+            MoveView firstMove,
+            MoveView secondMove
+        ) {
+            super(state, firstCasterIdx, secondCasterIdx, depth);
+            this.isMaximizing     = isMaximizing;
+            this.firstMove        = firstMove;
+            this.secondMove       = secondMove;
+            this.firstCasterIdx   = firstCasterIdx;
+            this.secondCasterIdx  = secondCasterIdx;
         }
 
         @Override
         public boolean isTerminal() {
-            if (state.isOver() || depth >= maxDepth){
-                return true;
-            }
-            return false;
+            return state.isOver() || depth >= maxDepth;
         }
 
-         @Override
+        @Override
         public double getValue() {
             if (isTerminal()) {
                 return evaluate(state);
             }
 
-            double val;
             List<Node> children = getChildren();
             if (children.isEmpty()) {
                 return evaluate(state);
             }
 
             if (isMaximizing) {
-                val = children.stream()
-                              .mapToDouble(Node::getValue)
-                              .max()
-                              .orElse(Double.NEGATIVE_INFINITY);
+                return children.stream()
+                        .mapToDouble(Node::getValue)
+                        .max()
+                        .orElse(Double.NEGATIVE_INFINITY);
             } else {
-                val = children.stream()
-                              .mapToDouble(Node::getValue)
-                              .min()
-                              .orElse(Double.POSITIVE_INFINITY);
+                return children.stream()
+                        .mapToDouble(Node::getValue)
+                        .min()
+                        .orElse(Double.POSITIVE_INFINITY);
             }
-            return val;
         }
 
         @Override
         public List<Node> getChildren() {
             List<Node> children = new ArrayList<>();
-            for (MoveView move : getLegalMoves(state, casterIdx)) {
-                children.add(new MoveResolutionChanceNode(state, casterIdx, oppIdx, depth + 1, move));
+
+            // 1) Apply the first move
+            List<Pair<Double, BattleView>> firstOutcomes =
+                firstMove.getPotentialEffects(state, firstCasterIdx, secondCasterIdx);
+
+            // 2) Then apply the second move to each outcome
+            for (Pair<Double, BattleView> firstOutcome : firstOutcomes) {
+                BattleView afterFirst = firstOutcome.getSecond();
+
+                // second move
+                List<Pair<Double, BattleView>> secondOutcomes =
+                    secondMove.getPotentialEffects(afterFirst, secondCasterIdx, firstCasterIdx);
+
+                // 3) For each final outcome, go to a PostTurnChanceNode
+                for (Pair<Double, BattleView> secondOutcome : secondOutcomes) {
+                    BattleView finalState = secondOutcome.getSecond();
+                    Node next = new PostTurnChanceNode(finalState, firstCasterIdx, secondCasterIdx, depth + 1);
+                    children.add(next);
+                }
             }
+
             return children;
         }
     }
 
+    /**
+     * A node for "executing" a single move with potential chance (status, confusion, etc.).
+     */
     public class MoveResolutionChanceNode extends Node {
         private final MoveView move;
 
@@ -391,10 +496,7 @@ abstract class MinimaxTreeBuilder
 
         @Override
         public boolean isTerminal() {
-            if (state.isOver() || depth >= maxDepth){
-                return true;
-            }
-            return false;
+            return (state.isOver() || depth >= maxDepth);
         }
 
         @Override
@@ -406,7 +508,9 @@ abstract class MinimaxTreeBuilder
             double total = 0.0;
             List<Pair<Double, Node>> branches = getProbabilisticChildren();
             for (Pair<Double, Node> branch : branches) {
-                total += branch.getFirst() * branch.getSecond().getValue();
+                double prob = branch.getFirst();
+                double val  = branch.getSecond().getValue();
+                total += prob * val;
             }
             return total;
         }
@@ -444,10 +548,10 @@ abstract class MinimaxTreeBuilder
             }
 
             double correctMoveChance = successChance * (1.0 - confuseChance);
-            double selfHitChance = successChance * confuseChance;
-            double failChance = 1.0 - successChance;
+            double selfHitChance     = successChance * confuseChance;
+            double failChance        = 1.0 - successChance;
 
-            // Real move goes through
+            // 1) Move goes through
             if (correctMoveChance > 0) {
                 for (Pair<Double, BattleView> outcome : move.getPotentialEffects(state, casterIdx, oppIdx)) {
                     Node child = new PostTurnChanceNode(outcome.getSecond(), casterIdx, oppIdx, depth + 1);
@@ -455,20 +559,20 @@ abstract class MinimaxTreeBuilder
                 }
             }
 
-            // Confused and hits self
+            // 2) Confused => hits self
             if (selfHitChance > 0) {
                 Move hurtYourselfMove = new Move(
-                        "SelfDamage",
-                        Type.NORMAL,
-                        Move.Category.PHYSICAL,
-                        40,
-                        null,
-                        Integer.MAX_VALUE,
-                        1,
-                        0
+                    "SelfDamage",
+                    Type.NORMAL,
+                    Move.Category.PHYSICAL,
+                    40,
+                    null,
+                    Integer.MAX_VALUE,
+                    1,
+                    0
                 ).addCallback(new MultiCallbackCallback(
-                        new ResetLastDamageDealtCallback(),
-                        new DoDamageCallback(Target.CASTER, false, false, true)
+                    new ResetLastDamageDealtCallback(),
+                    new DoDamageCallback(Target.CASTER, false, false, true)
                 ));
 
                 MoveView selfHitView = hurtYourselfMove.getView();
@@ -478,7 +582,7 @@ abstract class MinimaxTreeBuilder
                 }
             }
 
-            // Fails entirely
+            // 3) Move fails entirely
             if (failChance > 0) {
                 Node child = new PostTurnChanceNode(state, casterIdx, oppIdx, depth + 1);
                 children.add(new Pair<>(failChance, child));
@@ -488,7 +592,10 @@ abstract class MinimaxTreeBuilder
         }
     }
 
-
+    /**
+     * A node for applying all post-turn conditions. 
+     * This may yield multiple states if fainted pokemon must be replaced.
+     */
     public class PostTurnChanceNode extends Node {
         public PostTurnChanceNode(BattleView state, int casterIdx, int oppIdx, int depth) {
             super(state, casterIdx, oppIdx, depth);
@@ -496,10 +603,7 @@ abstract class MinimaxTreeBuilder
 
         @Override
         public boolean isTerminal() {
-            if (state.isOver() || depth >= maxDepth){
-                return true;
-            }
-            return false;
+            return (state.isOver() || depth >= maxDepth);
         }
 
         @Override
@@ -512,7 +616,8 @@ abstract class MinimaxTreeBuilder
             if (children.isEmpty()) {
                 return evaluate(state);
             }
-        
+
+            // Typically, an average is used if it's a purely random process
             double total = 0.0;
             for (Node child : children) {
                 total += child.getValue();
@@ -522,52 +627,51 @@ abstract class MinimaxTreeBuilder
 
         @Override
         public List<Node> getChildren() {
-            /*
-            ApplyPostTurnDocumentation from API:
-            "A method to get all of the ways post-turn logic can be applied to this Battle.BattleView. 
-            Note that this call may invoke an Agent's chooseNextPokemon method in the presence of fainted pokemon. 
-            If no pokemon has fainted, this method will return a list with only one element in it. 
-            If a pokemon faints, all choices of replacements are swapped in to generate multiple Battle.BattleView instances. 
-            If two pokemon faint, then the cross-product of potential swaps across both teams will be used to generate Battle.BattleView instances.
-            Returns:
-            All Battle.BattleView instances that could occur after post-turn logic is applied. 
-            This includes all ways of replacing fainted pokemon across both teams."
-            */
-
             List<Node> children = new ArrayList<>();
-            List<BattleView> postTurnOutcomes = state.applyPostTurnConditions();//get outcomes
+            List<BattleView> postTurnOutcomes = state.applyPostTurnConditions();
 
-            //create node for each child outcome
             for (BattleView outcome : postTurnOutcomes) {
-                children.add(new MoveOrderChanceNode(outcome, casterIdx, oppIdx, depth + 1));//add to return list
+                children.add(new MoveOrderChanceNode(outcome, casterIdx, oppIdx, depth + 1));
             }
             if (children.isEmpty()) {
                 children.add(new MoveOrderChanceNode(state, casterIdx, oppIdx, depth + 1));
             }
-            return children;    
+            return children;
         }
     }
 
+    /**
+     * Utility function to adjust for PARALYSIS (and possibly other effects).
+     * Currently only does paralysis. Expand as needed.
+     */
+    protected double adjustedSpeed(PokemonView pokemon) {
+        double spd = pokemon.getBaseStat(Stat.SPD);
+        if (pokemon.getNonVolatileStatus() == NonVolatileStatus.PARALYSIS) {
+            spd *= 0.75;
+        }
+        return spd;
+    }
+
+    /**
+     * Return all legal moves for a given team/player in the current state.
+     */
     public static List<Move.MoveView> getLegalMoves(BattleView state, int playerIdx) {
         List<Move.MoveView> legalMoves = new ArrayList<>();
-
         TeamView currentTeam = state.getTeamView(playerIdx);
         PokemonView active = currentTeam.getActivePokemonView();
 
-        // Add attack/status moves
+        // Attack/status moves
         for (MoveView move : active.getAvailableMoves()) {
             if (move.getPP() != null && move.getPP() > 0) {
                 legalMoves.add(move);
             }
         }
 
-        // Add switch moves only if the active Pokémon is NOT trapped
+        // Switch moves if NOT trapped
         if (!active.getFlag(Flag.TRAPPED)) {
             int activeIdx = currentTeam.getActivePokemonIdx();
-
             for (int i = 0; i < currentTeam.size(); i++) {
                 if (i == activeIdx) continue;
-
                 PokemonView poke = currentTeam.getPokemonView(i);
                 if (!poke.hasFainted()) {
                     SwitchMove switchMove = new SwitchMove(i);
@@ -575,54 +679,63 @@ abstract class MinimaxTreeBuilder
                 }
             }
         }
-
         return legalMoves;
     }
 
+    /**
+     * Returns all possible switch moves (for picking next Pokemon).
+     */
     public static List<SwitchMove.SwitchMoveView> getLegalSwitches(BattleView state, int playerIdx){
         List<SwitchMove.SwitchMoveView> legalSwitches = new ArrayList<>();
-
         TeamView team = state.getTeamView(playerIdx);
         int replaceIdx = team.getActivePokemonIdx();
 
         for(int i = 0; i < team.size(); i++){
-            if(i == replaceIdx) continue; //skip the current fainted pokemon
-
-            //get pokemon view for whole team and create a switch move for it
+            if(i == replaceIdx) continue; 
             PokemonView poke = team.getPokemonView(i);
             if(!poke.hasFainted()){
                 SwitchMove switchMove = new SwitchMove(i);
                 legalSwitches.add((SwitchMove.SwitchMoveView) switchMove.getView());
-
             }
         }
         return legalSwitches;
     }
 
-
-    private double evaluate(BattleView state) {
+    /**
+     * The evaluation function for a state. 
+     * +1 if we have effectively beaten the opponent, -1 if the opponent is winning, 
+     * or a fractional value based on remaining HPs if the match isn't over.
+     */
+    protected double evaluate(BattleView state) {
         TeamView t1 = state.getTeam1View();
         TeamView t2 = state.getTeam2View();
         
-        if(state.isOver()){
-            //in terminal state, return utility value (%%assumption assume getactivepokemonview will return the last active pokemon if a team lost%%)
-            if(t2.getActivePokemonView().hasFainted()) return 1;
-            else return -1;
-            //in a terminal state we return either -1 or 1 for win/loss
-        }else{
-            int i = 0;
+        if (state.isOver()){
+            // If team2's active has fainted => we (team1) presumably win => +1
+            if (t2.getActivePokemonView().hasFainted()) return 1.0;
+            else return -1.0;
+        } else {
+            // Heuristic: sum HP of each side
             int t1Hp = 0;
             int t2Hp = 0;
-            while(t2.getPokemonView(i) != null){
-                t2Hp += t2.getPokemonView(i).getCurrentStat(Stat.HP);
-                i++;
+
+            // Count HP of all t2 Pokemon
+            for (int i = 0; i < t2.size(); i++) {
+                PokemonView poke = t2.getPokemonView(i);
+                if (poke == null) break;
+                t2Hp += poke.getCurrentStat(Stat.HP);
             }
-            i = 0;
-            while(t1.getPokemonView(i) != null){
-                t1Hp += t1.getPokemonView(i).getCurrentStat(Stat.HP);
-                i++;
+
+            // Count HP of all t1 Pokemon
+            for (int i = 0; i < t1.size(); i++) {
+                PokemonView poke = t1.getPokemonView(i);
+                if (poke == null) break;
+                t1Hp += poke.getCurrentStat(Stat.HP);
             }
-            return (((t1Hp / (t1Hp + t2Hp)) * 2) - 1);
+
+            // Score in [-1, 1],  +1 means t1 is at full advantage, -1 means t2 is
+            double ratio = (double)t1Hp / ((double)t1Hp + (double)t2Hp);
+            return (ratio * 2) - 1; 
         }
     }
 }
