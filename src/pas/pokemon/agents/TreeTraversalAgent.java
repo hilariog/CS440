@@ -140,7 +140,7 @@ public class TreeTraversalAgent
             MinimaxTreeBuilder treeBuilder = new MinimaxTreeBuilder(outcomeState, exploreDepth, myTeamIdx) {};
             
             // Build game tree for next turn. Start with move order node
-            MinimaxTreeBuilder.Node rootNode = treeBuilder.new MoveOrderChanceNode(outcomeState, myTeamIdx, oppTeamIdx);
+            MinimaxTreeBuilder.Node rootNode = treeBuilder.new MoveOrderChanceNode(outcomeState, myTeamIdx, oppTeamIdx, 0);
             
             // Evaluate tree using the recursive getValue() methods.
             double candidateUtility = rootNode.getValue();
@@ -265,7 +265,6 @@ abstract class MinimaxTreeBuilder
             if (state.isOver() || depth >= maxDepth){
                 return true;
             }
-            return false;
             return false;
         }
 
