@@ -31,6 +31,8 @@ public class TetrisQAgent
 {
 
     public static final double EXPLORATION_PROB = 0.05;
+    public static final double EXPLORATION_DECREASE_GAMMA = 0.95;
+    public double currentExplorationProb = EXPLORATION_PROB;
 
     private Random random;
 
@@ -183,7 +185,8 @@ public class TetrisQAgent
                                  final GameCounter gameCounter)
     {
         // System.out.println("cycleIdx=" + gameCounter.getCurrentCycleIdx() + "\tgameIdx=" + gameCounter.getCurrentGameIdx());
-        return this.getRandom().nextDouble() <= EXPLORATION_PROB;
+        currentExplorationProb *= EXPLORATION_DECREASE_GAMMA;
+        return this.getRandom().nextDouble() <= currentExplorationProb;
     }
 
     /**
