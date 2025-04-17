@@ -81,22 +81,27 @@ public class TetrisQAgent
     public Matrix getQFunctionInput(final GameView game,
                                     final Mino potentialAction)
     {
-        Matrix flattenedImage = null;
-        try
-        {
+        int numQEntries = 12;
+        Matrix qInput = Matrix.zeros(numQEntries, 1);
+
+        // 0 & 1: score values
+        qInput.set(0, 0, game.getScoreThisTurn());
+        qInput.set(1, 0, game.getTotalScore());
+
+        // grab and orient the image
+        Matrix flattenedImage;
+        try {
             flattenedImage = game.getGrayscaleImage(potentialAction);
-        } catch(Exception e)
-        {
+        } catch (Exception e) {
             e.printStackTrace();
             System.exit(-1);
+            return qInput; // unreachable
         }
-
         Matrix oriented = flattenedImage.transpose();
-
         int numRows = oriented.getShape().numRows;
         int numCols = oriented.getShape().numCols;
 
-        // Find the max height
+        // 2: maximum height
         int maxHeight = 0;
         for (int i = 0; i < numRows; i++) {
             for (int j = 0; j < numCols; j++) {
@@ -106,12 +111,12 @@ public class TetrisQAgent
                 }
             }
         }
+        qInput.set(2, 0, maxHeight);
 
-        // Count filled rows >= 0.5 and max consecutive of those
+        // 3: total number of filled rows, track max consecutive
         int filledRowCount = 0;
         int consecutiveFilled = 0;
         int maxConsecutiveFilled = 0;
-
         for (int i = 0; i < numRows; i++) {
             boolean allFilled = true;
             for (int j = 0; j < numCols; j++) {
@@ -120,7 +125,6 @@ public class TetrisQAgent
                     break;
                 }
             }
-
             if (allFilled) {
                 filledRowCount++;
                 consecutiveFilled++;
@@ -129,9 +133,35 @@ public class TetrisQAgent
                 consecutiveFilled = 0;
             }
         }
-        
-        return flattenedImage;
+        qInput.set(3, 0, filledRowCount);
+
+        // 4: ≥4 consecutive filled rows?
+        qInput.set(4, 0, maxConsecutiveFilled >= 4 ? 1.0 : 0.0);
+
+        // 5: all rows complete?
+        qInput.set(5, 0, filledRowCount == numRows ? 1.0 : 0.0);
+
+        // 6: was a double T‑spin?
+        qInput.set(6, 0, wasDoubleTSpin(potentialAction) ? 1.0 : 0.0);
+
+        // 7: was a T‑spin?
+        qInput.set(7, 0, wasTSpin(potentialAction) ? 1.0 : 0.0);
+
+        // 8: did the agent lose?
+        qInput.set(8, 0, game.didAgentLose() ? 1.0 : 0.0);
+
+        // 9–11: next three Mino types (enum ordinals)
+        List<Mino.MinoType> nextTypes = game.getNextThreeMinoTypes();
+        for (int i = 0; i < 3; i++) {
+            double val = (i < nextTypes.size())
+                ? nextTypes.get(i).ordinal()
+                : 0.0;
+            qInput.set(9 + i, 0, val);
+        }
+
+        return qInput;
     }
+
 
     /**
      * This method is used to decide if we should follow our current policy
