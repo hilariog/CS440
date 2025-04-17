@@ -140,8 +140,8 @@ public class TetrisQAgent
         // 4: ≥4 consecutive filled rows?
         qInput.set(4, 0, maxConsecutiveFilled >= 4 ? 1.0 : 0.0);
 
-        // 5: all rows complete?
-        qInput.set(5, 0, filledRowCount == numRows ? 1.0 : 0.0);
+        // 5: all rows complete (super clear)?
+        qInput.set(5, 0, filledRowCount == maxHeight ? 1.0 : 0.0);
 
         // 6: was a double T‑spin?
         qInput.set(6, 0, wasDoubleTSpin(potentialAction) ? 1.0 : 0.0);
