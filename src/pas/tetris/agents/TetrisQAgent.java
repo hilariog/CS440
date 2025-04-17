@@ -84,12 +84,52 @@ public class TetrisQAgent
         Matrix flattenedImage = null;
         try
         {
-            flattenedImage = game.getGrayscaleImage(potentialAction).flatten();
+            flattenedImage = game.getGrayscaleImage(potentialAction);
         } catch(Exception e)
         {
             e.printStackTrace();
             System.exit(-1);
         }
+
+        Matrix oriented = flattenedImage.transpose();
+
+        int numRows = oriented.getShape().numRows;
+        int numCols = oriented.getShape().numCols;
+
+        // Find the max height
+        int maxHeight = 0;
+        for (int i = 0; i < numRows; i++) {
+            for (int j = 0; j < numCols; j++) {
+                if (oriented.get(i, j) >= 0.5) {
+                    maxHeight = i;
+                    break;
+                }
+            }
+        }
+
+        // Count filled rows >= 0.5 and max consecutive of those
+        int filledRowCount = 0;
+        int consecutiveFilled = 0;
+        int maxConsecutiveFilled = 0;
+
+        for (int i = 0; i < numRows; i++) {
+            boolean allFilled = true;
+            for (int j = 0; j < numCols; j++) {
+                if (oriented.get(i, j) < 0.5) {
+                    allFilled = false;
+                    break;
+                }
+            }
+
+            if (allFilled) {
+                filledRowCount++;
+                consecutiveFilled++;
+                maxConsecutiveFilled = Math.max(maxConsecutiveFilled, consecutiveFilled);
+            } else {
+                consecutiveFilled = 0;
+            }
+        }
+        
         return flattenedImage;
     }
 
