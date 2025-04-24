@@ -273,21 +273,20 @@ public class TetrisQAgent
     @Override
     public double getReward(final GameView game)
     {
-        // 1) immediate loss penalty, dont worry abt anything else if this happened
+        // 1) immediate loss penalty, dont wast time if already lost
         if (game.didAgentLose()) {
             return -10.0;
         }
 
-        // 2) base reward = points this turn
-        double reward = game.getScoreThisTurn();
+        // 2) base reward = raw points this turn + tiny survival bonus
+        double reward = game.getScoreThisTurn() + 0.01;
 
-        // 3) grab the post‐placement board
+        // 3) grab the board post‐placement
         Board board = game.getBoard();
         Block[][] grid = board.getBoard();
-        int numRows = grid.length;
-        int numCols = grid[0].length;
+        int numRows = grid.length, numCols = grid[0].length;
 
-        // compute current column heights
+        // 4) compute current column heights
         int[] heights = new int[numCols];
         for (int c = 0; c < numCols; c++) {
             for (int r = 0; r < numRows; r++) {
@@ -298,22 +297,20 @@ public class TetrisQAgent
             }
         }
 
-        // 4) detect lines cleared by comparing total height drop
-        if (lastHeights != null) {//null if board was empty last turn
+        // 5) detect line‐clears by total height drop
+        if (lastHeights != null) {
             int prevSum = Arrays.stream(lastHeights).sum();
             int currSum = Arrays.stream(heights).sum();
-            int heightDiff = prevSum - currSum;  
-            // positive heightDiff = rows cleared
-            if (heightDiff >= 4) {
-                // Tetris bonus
-                reward += 5.0;
-            } else if (heightDiff > 0) {
-                // smaller clear bonus
-                reward += 1.0 * heightDiff;
+            int rowsCleared = prevSum - currSum;  // >0 if lines cleared
+
+            if (rowsCleared >= 4) {
+                reward += 5.0;                // Tetris bonus
+            } else if (rowsCleared > 0) {
+                reward += 1.0 * rowsCleared; // smaller‐clear bonus
             }
         }
 
-        // 5) penalize max height and holes
+        // 6) penalize max height & buried holes
         int maxH = Arrays.stream(heights).max().orElse(0);
         int holes = 0;
         for (int c = 0; c < numCols; c++) {
@@ -329,25 +326,36 @@ public class TetrisQAgent
         reward -= 0.1 * maxH;
         reward -= 0.5 * holes;
 
-        // 6) super‐clear bonus
+        // 7) perfect‐clear bonus
         if (board.isClear()) {
             reward += 10.0;
         }
 
-        // 7) bumpiness reward: encourage smoother surface
-        int currBump = 0;
-        int prevBump = 0;
-        for (int c = 0; c < numCols - 1; c++) {
-            currBump += Math.abs(heights[c] - heights[c+1]);
-            if (lastHeights != null) {
-                prevBump += Math.abs(lastHeights[c] - lastHeights[c+1]);
+        // 8) bumpiness smoothing bonus
+        if (lastHeights != null) {
+            int prevBump = 0, currBump = 0;
+            for (int c = 0; c < numCols - 1; c++) {
+                prevBump += Math.abs(lastHeights[c] - lastHeights[c + 1]);
+                currBump += Math.abs(heights[c]    - heights[c + 1]);
+            }
+            if (currBump < prevBump) {
+                reward += 0.1 * (prevBump - currBump);
             }
         }
-        if (lastHeights != null && currBump < prevBump) {
-            reward += 0.1 * (prevBump - currBump);
-        }
 
-        // 8) update lastHeights for next call
+        // 9) well‐structure bonus (deep vertical slots for I‐minos)
+        int wellSum = 0;
+        for (int c = 0; c < numCols; c++) {
+            int leftH  = (c > 0)         ? heights[c - 1] : Integer.MAX_VALUE;
+            int rightH = (c < numCols-1) ? heights[c + 1] : Integer.MAX_VALUE;
+            int minNeighbor = Math.min(leftH, rightH);
+            if (minNeighbor > heights[c]) {
+                wellSum += (minNeighbor - heights[c]);
+            }
+        }
+        reward += 0.05 * wellSum;
+
+        // 10) roll forward for next call
         lastHeights = heights;
 
         return reward;
