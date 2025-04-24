@@ -5,7 +5,9 @@ package src.pas.tetris.agents;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Random;
-
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 
 // JAVA PROJECT IMPORTS
 import edu.bu.pas.tetris.agents.QAgent;
@@ -52,14 +54,16 @@ public class TetrisQAgent
         // this example will create a 3-layer neural network (1 hidden layer)
         // in this example, the input to the neural network is the
         // image of the board unrolled into a giant vector
-        final int numPixelsInImage = Board.NUM_ROWS * Board.NUM_COLS;
-        final int hiddenDim = 2 * numPixelsInImage;
+        final int hiddenDimOne = 64;
+        final int hiddenDimTwo = 32;
         final int outDim = 1;
 
         Sequential qFunction = new Sequential();
-        qFunction.add(new Dense(numPixelsInImage, hiddenDim));
-        qFunction.add(new Tanh());
-        qFunction.add(new Dense(hiddenDim, outDim));
+        qFunction.add(new Dense(11, hiddenDimOne));
+        qFunction.add(new ReLU());
+        qFunction.add(new Dense(hiddenDimOne, hiddenDimTwo));
+        qFunction.add(new ReLU());
+        qFunction.add(new Dense(hiddenDimTwo, outDim));
 
         return qFunction;
     }
@@ -83,12 +87,11 @@ public class TetrisQAgent
     public Matrix getQFunctionInput(final GameView game,
                                     final Mino potentialAction)
     {
-        int numQEntries = 12;
+        int numQEntries = 11;
         Matrix qInput = Matrix.zeros(numQEntries, 1);
 
-        // 0 & 1: score values
-        qInput.set(0, 0, game.getScoreThisTurn());
-        qInput.set(1, 0, game.getTotalScore());
+        // 0 score values
+        qInput.set(0, 0, game.getTotalScore());
 
         // grab and orient the image
         Matrix flattenedImage;
@@ -100,10 +103,10 @@ public class TetrisQAgent
             return qInput; // unreachable
         }
         Matrix oriented = flattenedImage.transpose();
-        int numRows = oriented.getShape().numRows;
-        int numCols = oriented.getShape().numCols;
+        int numRows = oriented.getShape().getNumRows();
+        int numCols = oriented.getShape().getNumCols();
 
-        // 2: maximum height
+        // 1: maximum height
         int maxHeight = 0;
         for (int i = 0; i < numRows; i++) {
             for (int j = 0; j < numCols; j++) {
@@ -113,9 +116,9 @@ public class TetrisQAgent
                 }
             }
         }
-        qInput.set(2, 0, maxHeight);
+        qInput.set(1, 0, maxHeight);
 
-        // 3: total number of filled rows, track max consecutive
+        // 2: total number of filled rows, track max consecutive
         int filledRowCount = 0;
         int consecutiveFilled = 0;
         int maxConsecutiveFilled = 0;
@@ -135,30 +138,30 @@ public class TetrisQAgent
                 consecutiveFilled = 0;
             }
         }
-        qInput.set(3, 0, filledRowCount);
+        qInput.set(2, 0, filledRowCount);
 
-        // 4: ≥4 consecutive filled rows?
-        qInput.set(4, 0, maxConsecutiveFilled >= 4 ? 1.0 : 0.0);
+        // 3: ≥4 consecutive filled rows?
+        qInput.set(3, 0, maxConsecutiveFilled >= 4 ? 1.0 : 0.0);
 
-        // 5: all rows complete (super clear)?
-        qInput.set(5, 0, filledRowCount == maxHeight ? 1.0 : 0.0);
+        // 4: all rows complete (super clear)?
+        qInput.set(4, 0, filledRowCount == maxHeight ? 1.0 : 0.0);
 
-        // 6: was a double T‑spin?
-        qInput.set(6, 0, wasDoubleTSpin(potentialAction) ? 1.0 : 0.0);
+        // 5: was a double T‑spin?
+        qInput.set(5, 0, game.wasDoubleTSpin(potentialAction) ? 1.0 : 0.0);
 
-        // 7: was a T‑spin?
-        qInput.set(7, 0, wasTSpin(potentialAction) ? 1.0 : 0.0);
+        // 6: was a T‑spin?
+        qInput.set(6, 0, game.wasTSpin(potentialAction) ? 1.0 : 0.0);
 
-        // 8: did the agent lose?
-        qInput.set(8, 0, game.didAgentLose() ? 1.0 : 0.0);
+        // 7: did the agent lose?
+        qInput.set(7, 0, game.didAgentLose() ? 1.0 : 0.0);
 
-        // 9–11: next three Mino types (enum ordinals)
+        // 8-10: next three Mino types (enum ordinals)
         List<Mino.MinoType> nextTypes = game.getNextThreeMinoTypes();
         for (int i = 0; i < 3; i++) {
             double val = (i < nextTypes.size())
                 ? nextTypes.get(i).ordinal()
                 : 0.0;
-            qInput.set(9 + i, 0, val);
+            qInput.set(8 + i, 0, val);
         }
 
         return qInput;
@@ -201,6 +204,34 @@ public class TetrisQAgent
     @Override
     public Mino getExplorationMove(final GameView game)
     {
+        List<Mino> moves = game.getFinalMinoPositions();
+        int n = moves.size();
+        List<Double> weights = new ArrayList<>(n);
+
+        // Make a probability distribution based on raw score so we dont just pick obviously terrible moves with equal probability
+        for (Mino action : moves) {
+            weights.add(game.getScoreThisTurn(action));
+        }
+        double minW = Collections.min(weights);
+        double offset = (minW < 0 ? -minW : 0) + 1e-6;
+        double total  = 0;
+        for (int i = 0; i < n; i++) {
+            double w = weights.get(i) + offset;
+            weights.set(i, w);
+            total += w;
+        }
+
+        // Sample from distribution
+        double choice = getRandom().nextDouble() * total;
+        double cumulative = 0;
+        for (int i = 0; i < n; i++) {
+            cumulative += weights.get(i);
+            if (choice < cumulative) {
+                return moves.get(i);
+            }
+        }
+
+        // Pick random otherwise for fallback
         int randIdx = this.getRandom().nextInt(game.getFinalMinoPositions().size());
         return game.getFinalMinoPositions().get(randIdx);
     }
