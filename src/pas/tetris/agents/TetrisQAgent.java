@@ -35,7 +35,7 @@ public class TetrisQAgent
 {
 
     public static final double EXPLORATION_PROB = 0.25;
-    public static final double EXPLORATION_DECREASE_GAMMA = 0.99;
+    public static final double EXPLORATION_DECREASE_GAMMA = 0.95;
     public double currentExplorationProb = EXPLORATION_PROB;
     private long lastCycleIdx = -1;      // Remember last cycle idx so we only decay once per cycle:
 
@@ -59,17 +59,20 @@ public class TetrisQAgent
         // image of the board unrolled into a giant vector
         final int hiddenDimOne = 64;
         final int hiddenDimTwo = 128;
-        final int hiddenDimThree = 32;
+        final int hiddenDimThree = 64;
+        final int hiddenDimFour = 32;
         final int outDim = 1;
 
         Sequential qFunction = new Sequential();
         qFunction.add(new Dense(9, hiddenDimOne));
         qFunction.add(new ReLU());
         qFunction.add(new Dense(hiddenDimOne, hiddenDimTwo));
-        qFunction.add(new ReLU());
+        qFunction.add(new Tanh());
         qFunction.add(new Dense(hiddenDimTwo, hiddenDimThree));
+        qFunction.add(new Sigmoid());
+        qFunction.add(new Dense(hiddenDimThree, hiddenDimFour));
         qFunction.add(new ReLU());
-        qFunction.add(new Dense(hiddenDimThree, outDim));
+        qFunction.add(new Dense(hiddenDimFour, outDim));
 
         return qFunction;
     }
@@ -360,32 +363,93 @@ public class TetrisQAgent
         //     }
         // }
 
-       // 9) well‐sum reward: only count rows where the ONLY empty cells
-        //    are true wells (i.e. bounded on left & right) and every other
-        //    column is occupied, so filling those holes WOULD clear the row.
-        int wellRows = 0;
-        for (int r = 0; r < numRows; r++) {
-            boolean sawWellCell = false;
-            boolean sawNonWellHole = false;
-            for (int c = 0; c < numCols; c++) {
-                if (grid[r][c] == null) {
-                    // check if this empty is a “well” (neighbors occupied or edge)
-                    boolean leftFilled  = (c == 0) || (grid[r][c-1] != null);
-                    boolean rightFilled = (c == numCols-1) || (grid[r][c+1] != null);
-                    if (leftFilled && rightFilled) {
-                        sawWellCell = true;
-                    } else {
-                        sawNonWellHole = true;
-                        break;
-                    }
+        // // 8) well‐sum reward: only count rows where the ONLY empty cells
+        // //    are true wells (i.e. bounded on left & right) and every other
+        // //    column is occupied, so filling those holes WOULD clear the row.
+        // int wellRows = 0;
+        // for (int r = 0; r < numRows; r++) {
+        //     boolean sawWellCell = false;
+        //     boolean sawNonWellHole = false;
+        //     for (int c = 0; c < numCols; c++) {
+        //         if (grid[r][c] == null) {
+        //             // check if this empty is a “well” (neighbors occupied or edge)
+        //             boolean leftFilled  = (c == 0) || (grid[r][c-1] != null);
+        //             boolean rightFilled = (c == numCols-1) || (grid[r][c+1] != null);
+        //             if (leftFilled && rightFilled) {
+        //                 sawWellCell = true;
+        //             } else {
+        //                 sawNonWellHole = true;
+        //                 break;
+        //             }
+        //         }
+        //     }
+        //     if (sawWellCell && !sawNonWellHole) {
+        //         wellRows++;
+        //     }
+        // }
+        // // reward each such “perfect well‐row” lightly
+        // reward += 0.2 * wellRows;
+
+        // 11) count every exposed well-cell:
+        //    for each column, find the first filled cell (topFilled), then
+        //    every null above it is an exposed well cell.
+        int wellCells = 0;
+        for (int c = 0; c < numCols; c++) {
+            // find row index of first block in this column
+            int topFilled = numRows;
+            for (int r = 0; r < numRows; r++) {
+                if (grid[r][c] != null) {
+                    topFilled = r;
+                    break;
                 }
             }
-            if (sawWellCell && !sawNonWellHole) {
-                wellRows++;
+            // count all empty cells above it
+            for (int r = 0; r < topFilled; r++) {
+                if (grid[r][c] == null) {
+                    wellCells++;
+                }
             }
         }
-        // reward each such “perfect well‐row” lightly
-        reward += 0.2 * wellRows;
+
+
+        // // 12) count rows that have exactly one run of 1 or 2 holes,
+        // //     those holes must be "sky-exposed" (no block above them).
+        // int consecutiveHoleRows = 0;
+        // for (int r = 0; r < numRows; r++) {
+        //     int holeCount = 0;
+        //     int maxRun = 0, currentRun = 0;
+        //     for (int c = 0; c < numCols; c++) {
+        //         if (grid[r][c] == null) {
+        //             // check if this hole is exposed (no blocks above)
+        //             boolean exposed = true;
+        //             for (int up = 0; up < r; up++) {
+        //                 if (grid[up][c] != null) {
+        //                     exposed = false;
+        //                     break;
+        //                 }
+        //             }
+        //             if (exposed) {
+        //                 holeCount++;
+        //                 currentRun++;
+        //                 maxRun = Math.max(maxRun, currentRun);
+        //             } else {
+        //                 // covered hole → invalidate this row
+        //                 currentRun = 0;
+        //                 holeCount = Integer.MAX_VALUE;
+        //                 break;
+        //             }
+        //         } else {
+        //             currentRun = 0;
+        //         }
+        //     }
+        //     // exactly one run, length 1 or 2, and no other holes
+        //     if (holeCount > 0 && holeCount <= 2 && maxRun == holeCount) {
+        //         consecutiveHoleRows++;
+        //     }
+        // }
+
+        reward += 0.1 * wellCells;
+        // reward += 1.0 * consecutiveHoleRows;
 
         // 10) roll forward for next call
         lastHeights = heights;
