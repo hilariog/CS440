@@ -318,9 +318,9 @@ public class TetrisQAgent
             int rowsCleared = prevSum - currSum;  // >0 if lines cleared
 
             if (rowsCleared >= 4) {
-                reward += 10.0;                // Tetris bonus
+                reward += 5.0;                // Tetris bonus
             } else if (rowsCleared > 0) {
-                reward += 5.0 * rowsCleared; // smaller‐clear bonus
+                reward += 1.0 * rowsCleared; // smaller‐clear bonus
             }
         }
 
@@ -337,8 +337,8 @@ public class TetrisQAgent
                 }
             }
         }
-        reward -= 0.02 * maxH;
-        reward -= 0.02 * holes;
+        reward -= 0.1 * maxH;
+        reward -= 0.1 * holes;
 
         // 7) perfect‐clear bonus
         if (board.isClear()) {
