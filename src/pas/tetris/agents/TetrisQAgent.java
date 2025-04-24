@@ -59,17 +59,20 @@ public class TetrisQAgent
         // image of the board unrolled into a giant vector
         final int hiddenDimOne = 64;
         final int hiddenDimTwo = 128;
-        final int hiddenDimThree = 32;
+        final int hiddenDimThree = 64;
+        final int hiddenDimFour = 32;
         final int outDim = 1;
 
         Sequential qFunction = new Sequential();
         qFunction.add(new Dense(9, hiddenDimOne));
         qFunction.add(new ReLU());
         qFunction.add(new Dense(hiddenDimOne, hiddenDimTwo));
-        qFunction.add(new ReLU());
+        qFunction.add(new Tanh());
         qFunction.add(new Dense(hiddenDimTwo, hiddenDimThree));
+        qFunction.add(new Sigmoid());
+        qFunction.add(new Dense(hiddenDimThree, hiddenDimFour));
         qFunction.add(new ReLU());
-        qFunction.add(new Dense(hiddenDimThree, outDim));
+        qFunction.add(new Dense(hiddenDimFour, outDim));
 
         return qFunction;
     }
