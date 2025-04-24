@@ -14,6 +14,8 @@ import edu.bu.pas.tetris.agents.QAgent;
 import edu.bu.pas.tetris.agents.TrainerAgent.GameCounter;
 import edu.bu.pas.tetris.game.Board;
 import edu.bu.pas.tetris.game.Game.GameView;
+import edu.bu.pas.tetris.game.Block;
+import java.util.Arrays;
 import edu.bu.pas.tetris.game.minos.Mino;
 import edu.bu.pas.tetris.linalg.Matrix;
 import edu.bu.pas.tetris.nn.Model;
