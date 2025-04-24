@@ -35,7 +35,7 @@ public class TetrisQAgent
 {
 
     public static final double EXPLORATION_PROB = 0.25;
-    public static final double EXPLORATION_DECREASE_GAMMA = 0.99;
+    public static final double EXPLORATION_DECREASE_GAMMA = 0.95;
     public double currentExplorationProb = EXPLORATION_PROB;
     private long lastCycleIdx = -1;      // Remember last cycle idx so we only decay once per cycle:
 
