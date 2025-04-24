@@ -59,7 +59,7 @@ public class TetrisQAgent
         final int outDim = 1;
 
         Sequential qFunction = new Sequential();
-        qFunction.add(new Dense(11, hiddenDimOne));
+        qFunction.add(new Dense(9, hiddenDimOne));
         qFunction.add(new ReLU());
         qFunction.add(new Dense(hiddenDimOne, hiddenDimTwo));
         qFunction.add(new ReLU());
@@ -87,7 +87,7 @@ public class TetrisQAgent
     public Matrix getQFunctionInput(final GameView game,
                                     final Mino potentialAction)
     {
-        int numQEntries = 11;
+        int numQEntries = 9;
         Matrix qInput = Matrix.zeros(numQEntries, 1);
 
         // 0 score values
@@ -146,25 +146,19 @@ public class TetrisQAgent
         // 4: all rows complete (super clear)?
         qInput.set(4, 0, filledRowCount == maxHeight ? 1.0 : 0.0);
 
-        // 5: was a double T‑spin?
-        qInput.set(5, 0, game.wasDoubleTSpin(potentialAction) ? 1.0 : 0.0);
-
-        // 6: was a T‑spin?
-        qInput.set(6, 0, game.wasTSpin(potentialAction) ? 1.0 : 0.0);
-
-        // 7: did the agent lose?
+        // 5: did the agent lose?
         qInput.set(7, 0, game.didAgentLose() ? 1.0 : 0.0);
 
-        // 8-10: next three Mino types (enum ordinals)
+        // 6-8: next three Mino types (enum ordinals)
         List<Mino.MinoType> nextTypes = game.getNextThreeMinoTypes();
         for (int i = 0; i < 3; i++) {
             double val = (i < nextTypes.size())
                 ? nextTypes.get(i).ordinal()
                 : 0.0;
-            qInput.set(8 + i, 0, val);
+            qInput.set(6 + i, 0, val);
         }
 
-        return qInput;
+        return qInput.transpose();
     }
 
 
@@ -204,34 +198,6 @@ public class TetrisQAgent
     @Override
     public Mino getExplorationMove(final GameView game)
     {
-        List<Mino> moves = game.getFinalMinoPositions();
-        int n = moves.size();
-        List<Double> weights = new ArrayList<>(n);
-
-        // Make a probability distribution based on raw score so we dont just pick obviously terrible moves with equal probability
-        for (Mino action : moves) {
-            weights.add(game.getScoreThisTurn(action));
-        }
-        double minW = Collections.min(weights);
-        double offset = (minW < 0 ? -minW : 0) + 1e-6;
-        double total  = 0;
-        for (int i = 0; i < n; i++) {
-            double w = weights.get(i) + offset;
-            weights.set(i, w);
-            total += w;
-        }
-
-        // Sample from distribution
-        double choice = getRandom().nextDouble() * total;
-        double cumulative = 0;
-        for (int i = 0; i < n; i++) {
-            cumulative += weights.get(i);
-            if (choice < cumulative) {
-                return moves.get(i);
-            }
-        }
-
-        // Pick random otherwise for fallback
         int randIdx = this.getRandom().nextInt(game.getFinalMinoPositions().size());
         return game.getFinalMinoPositions().get(randIdx);
     }
