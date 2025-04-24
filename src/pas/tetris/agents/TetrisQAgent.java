@@ -6,7 +6,8 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Random;
 import java.util.ArrayList;
-
+import java.util.Collections;
+import java.util.List;
 
 // JAVA PROJECT IMPORTS
 import edu.bu.pas.tetris.agents.QAgent;
@@ -102,8 +103,8 @@ public class TetrisQAgent
             return qInput; // unreachable
         }
         Matrix oriented = flattenedImage.transpose();
-        int numRows = oriented.getShape().numRows;
-        int numCols = oriented.getShape().numCols;
+        int numRows = oriented.getShape().getNumRows();
+        int numCols = oriented.getShape().getNumCols();
 
         // 1: maximum height
         int maxHeight = 0;
