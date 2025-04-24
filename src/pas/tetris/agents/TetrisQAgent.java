@@ -147,10 +147,10 @@ public class TetrisQAgent
         qInput.set(4, 0, filledRowCount == maxHeight ? 1.0 : 0.0);
 
         // 5: was a double T‑spin?
-        qInput.set(5, 0, wasDoubleTSpin(potentialAction) ? 1.0 : 0.0);
+        qInput.set(5, 0, game.wasDoubleTSpin(potentialAction) ? 1.0 : 0.0);
 
         // 6: was a T‑spin?
-        qInput.set(6, 0, wasTSpin(potentialAction) ? 1.0 : 0.0);
+        qInput.set(6, 0, game.wasTSpin(potentialAction) ? 1.0 : 0.0);
 
         // 7: did the agent lose?
         qInput.set(7, 0, game.didAgentLose() ? 1.0 : 0.0);
