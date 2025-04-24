@@ -34,8 +34,8 @@ public class TetrisQAgent
     extends QAgent
 {
 
-    public static final double EXPLORATION_PROB = 0.05;
-    public static final double EXPLORATION_DECREASE_GAMMA = 0.95;
+    public static final double EXPLORATION_PROB = 0.25;
+    public static final double EXPLORATION_DECREASE_GAMMA = 0.99;
     public double currentExplorationProb = EXPLORATION_PROB;
     private long lastCycleIdx = -1;      // Remember last cycle idx so we only decay once per cycle:
 
@@ -58,7 +58,8 @@ public class TetrisQAgent
         // in this example, the input to the neural network is the
         // image of the board unrolled into a giant vector
         final int hiddenDimOne = 64;
-        final int hiddenDimTwo = 32;
+        final int hiddenDimTwo = 128;
+        final int hiddenDimThree = 32;
         final int outDim = 1;
 
         Sequential qFunction = new Sequential();
@@ -66,7 +67,9 @@ public class TetrisQAgent
         qFunction.add(new ReLU());
         qFunction.add(new Dense(hiddenDimOne, hiddenDimTwo));
         qFunction.add(new ReLU());
-        qFunction.add(new Dense(hiddenDimTwo, outDim));
+        qFunction.add(new Dense(hiddenDimTwo, hiddenDimThree));
+        qFunction.add(new ReLU());
+        qFunction.add(new Dense(hiddenDimThree, outDim));
 
         return qFunction;
     }
