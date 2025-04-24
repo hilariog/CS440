@@ -1,0 +1,10 @@
+edu.bu.cp
+edu.bu.cp.game
+edu.bu.cp.linalg
+edu.bu.cp.nn
+edu.bu.cp.nn.layers
+edu.bu.cp.nn.losses
+edu.bu.cp.nn.models
+edu.bu.cp.nn.optimizers
+edu.bu.cp.nn.test
+edu.bu.cp.utils

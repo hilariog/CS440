@@ -1,0 +1,1 @@
+packageSearchIndex = [{"l":"All Packages","u":"allpackages-index.html"},{"l":"edu.bu.cp"},{"l":"edu.bu.cp.game"},{"l":"edu.bu.cp.linalg"},{"l":"edu.bu.cp.nn"},{"l":"edu.bu.cp.nn.layers"},{"l":"edu.bu.cp.nn.losses"},{"l":"edu.bu.cp.nn.models"},{"l":"edu.bu.cp.nn.optimizers"},{"l":"edu.bu.cp.nn.test"},{"l":"edu.bu.cp.utils"}];updateSearchResults();
