@@ -37,6 +37,7 @@ public class TetrisQAgent
     public static final double EXPLORATION_PROB = 0.05;
     public static final double EXPLORATION_DECREASE_GAMMA = 0.95;
     public double currentExplorationProb = EXPLORATION_PROB;
+    private long lastCycleIdx = -1;      // Remember last cycle idx so we only decay once per cycle:
 
     private Random random;
 
@@ -149,7 +150,7 @@ public class TetrisQAgent
         qInput.set(4, 0, filledRowCount == maxHeight ? 1.0 : 0.0);
 
         // 5: did the agent lose?
-        qInput.set(7, 0, game.didAgentLose() ? 1.0 : 0.0);
+        qInput.set(5, 0, game.didAgentLose() ? 1.0 : 0.0);
 
         // 6-8: next three Mino types (enum ordinals)
         List<Mino.MinoType> nextTypes = game.getNextThreeMinoTypes();
@@ -183,9 +184,17 @@ public class TetrisQAgent
     public boolean shouldExplore(final GameView game,
                                  final GameCounter gameCounter)
     {
-        // System.out.println("cycleIdx=" + gameCounter.getCurrentCycleIdx() + "\tgameIdx=" + gameCounter.getCurrentGameIdx());
-        currentExplorationProb *= EXPLORATION_DECREASE_GAMMA;
+        long cycleIdx = gameCounter.getCurrentCycleIdx();
+
+        // only decay epsilon when we enter a new cycle:
+        if (cycleIdx != lastCycleIdx) {
+            currentExplorationProb *= EXPLORATION_DECREASE_GAMMA;
+            lastCycleIdx = cycleIdx;
+        }
+
+        // now do the usual epsilon–greedy check
         return this.getRandom().nextDouble() <= currentExplorationProb;
+
     }
 
     /**
@@ -278,7 +287,7 @@ public class TetrisQAgent
         }
 
         // 2) base reward = raw points this turn + tiny survival bonus
-        double reward = game.getScoreThisTurn() + 0.01;
+        double reward = game.getScoreThisTurn() + 0.1;
 
         // 3) grab the board post‐placement
         Board board = game.getBoard();
@@ -296,6 +305,12 @@ public class TetrisQAgent
             }
         }
 
+        // 3.1) bonus for keeping the stack low: normalized inverse average height
+        double avgHeight = Arrays.stream(heights).average().orElse(0.0);
+        double heightFactor = ((double)numRows - avgHeight) / numRows;  // 1.0 = totally empty, 0.0 = full height
+        // tune the weight to taste (0.2 here is a starting point)
+        reward += 0.05 * heightFactor;
+
         // 5) detect line‐clears by total height drop
         if (lastHeights != null) {
             int prevSum = Arrays.stream(lastHeights).sum();
@@ -303,9 +318,9 @@ public class TetrisQAgent
             int rowsCleared = prevSum - currSum;  // >0 if lines cleared
 
             if (rowsCleared >= 4) {
-                reward += 5.0;                // Tetris bonus
+                reward += 10.0;                // Tetris bonus
             } else if (rowsCleared > 0) {
-                reward += 1.0 * rowsCleared; // smaller‐clear bonus
+                reward += 5.0 * rowsCleared; // smaller‐clear bonus
             }
         }
 
@@ -322,37 +337,52 @@ public class TetrisQAgent
                 }
             }
         }
-        reward -= 0.1 * maxH;
-        reward -= 0.5 * holes;
+        reward -= 0.02 * maxH;
+        reward -= 0.02 * holes;
 
         // 7) perfect‐clear bonus
         if (board.isClear()) {
-            reward += 10.0;
+            reward += 15.0;
         }
 
-        // 8) bumpiness smoothing bonus
-        if (lastHeights != null) {
-            int prevBump = 0, currBump = 0;
-            for (int c = 0; c < numCols - 1; c++) {
-                prevBump += Math.abs(lastHeights[c] - lastHeights[c + 1]);
-                currBump += Math.abs(heights[c]    - heights[c + 1]);
-            }
-            if (currBump < prevBump) {
-                reward += 0.1 * (prevBump - currBump);
-            }
-        }
+        // // 8) bumpiness smoothing bonus
+        // if (lastHeights != null) {
+        //     int prevBump = 0, currBump = 0;
+        //     for (int c = 0; c < numCols - 1; c++) {
+        //         prevBump += Math.abs(lastHeights[c] - lastHeights[c + 1]);
+        //         currBump += Math.abs(heights[c]    - heights[c + 1]);
+        //     }
+        //     if (currBump < prevBump) {
+        //         reward += 0.2 * (prevBump - currBump);
+        //     }
+        // }
 
-        // 9) well‐structure bonus (deep vertical slots for I‐minos)
-        int wellSum = 0;
-        for (int c = 0; c < numCols; c++) {
-            int leftH  = (c > 0)         ? heights[c - 1] : Integer.MAX_VALUE;
-            int rightH = (c < numCols-1) ? heights[c + 1] : Integer.MAX_VALUE;
-            int minNeighbor = Math.min(leftH, rightH);
-            if (minNeighbor > heights[c]) {
-                wellSum += (minNeighbor - heights[c]);
+       // 9) well‐sum reward: only count rows where the ONLY empty cells
+        //    are true wells (i.e. bounded on left & right) and every other
+        //    column is occupied, so filling those holes WOULD clear the row.
+        int wellRows = 0;
+        for (int r = 0; r < numRows; r++) {
+            boolean sawWellCell = false;
+            boolean sawNonWellHole = false;
+            for (int c = 0; c < numCols; c++) {
+                if (grid[r][c] == null) {
+                    // check if this empty is a “well” (neighbors occupied or edge)
+                    boolean leftFilled  = (c == 0) || (grid[r][c-1] != null);
+                    boolean rightFilled = (c == numCols-1) || (grid[r][c+1] != null);
+                    if (leftFilled && rightFilled) {
+                        sawWellCell = true;
+                    } else {
+                        sawNonWellHole = true;
+                        break;
+                    }
+                }
+            }
+            if (sawWellCell && !sawNonWellHole) {
+                wellRows++;
             }
         }
-        reward += 0.05 * wellSum;
+        // reward each such “perfect well‐row” lightly
+        reward += 0.2 * wellRows;
 
         // 10) roll forward for next call
         lastHeights = heights;
