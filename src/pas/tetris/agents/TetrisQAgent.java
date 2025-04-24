@@ -364,11 +364,10 @@ public class TetrisQAgent
         //    are true wells (i.e. bounded on left & right) and every other
         //    column is occupied, so filling those holes WOULD clear the row.
         int wellRows = 0;
-        int[] deepWells = new int[numCols]
+        int[] deepWells = new int[numCols];
 
         for (int r = 0; r < numRows; r++) {
-            boolean sawWellCell = false;
-            boolean sawConsecutiveWell = false; 
+            boolean sawWellCell = false; 
             boolean sawNonWellHole = false;
             for (int c = 0; c < numCols; c++) {
                 if (grid[r][c] == null) {
@@ -377,12 +376,13 @@ public class TetrisQAgent
                     boolean rightFilled = (c == numCols-1) || (grid[r][c+1] != null);
                     boolean topFilled = (r == numRows-1) || (grid[r+1][c] != null);
                     boolean bottomFilled = (r == 0) || (grid[r-1][c] != null);
-                    if (leftFilled && rightFilled) {
+                    if (!topFilled) {
                         sawWellCell = true;
-                        if(!bottomFilled && ){
-                            sawConsecutiveWell
+                        if(!bottomFilled && !deepWells[c]){
+                            deepWells[c] = 1;
                         }
-                    } else {
+                    } 
+                    if(topFilled) {
                         sawNonWellHole = true;
                         break;
                     }
