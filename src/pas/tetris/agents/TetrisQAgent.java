@@ -266,10 +266,92 @@ public class TetrisQAgent
      * (unless you have a long hole waiting for an I-block). When you design a reward
      * signal that is less sparse, you should see your model optimize this reward over time.
      */
+
+    // keep a running record of last column‐heights so we can detect lines cleared & bumpiness change
+    private int[] lastHeights = null;
+
     @Override
     public double getReward(final GameView game)
     {
-        return game.getScoreThisTurn();
+        // 1) immediate loss penalty, dont worry abt anything else if this happened
+        if (game.didAgentLose()) {
+            return -10.0;
+        }
+
+        // 2) base reward = points this turn
+        double reward = game.getScoreThisTurn();
+
+        // 3) grab the post‐placement board
+        Board board = game.getBoard();
+        Block[][] grid = board.getBoard();
+        int numRows = grid.length;
+        int numCols = grid[0].length;
+
+        // compute current column heights
+        int[] heights = new int[numCols];
+        for (int c = 0; c < numCols; c++) {
+            for (int r = 0; r < numRows; r++) {
+                if (grid[r][c] != null) {
+                    heights[c] = numRows - r;
+                    break;
+                }
+            }
+        }
+
+        // 4) detect lines cleared by comparing total height drop
+        if (lastHeights != null) {//null if board was empty last turn
+            int prevSum = Arrays.stream(lastHeights).sum();
+            int currSum = Arrays.stream(heights).sum();
+            int heightDiff = prevSum - currSum;  
+            // positive heightDiff = rows cleared
+            if (heightDiff >= 4) {
+                // Tetris bonus
+                reward += 5.0;
+            } else if (heightDiff > 0) {
+                // smaller clear bonus
+                reward += 1.0 * heightDiff;
+            }
+        }
+
+        // 5) penalize max height and holes
+        int maxH = Arrays.stream(heights).max().orElse(0);
+        int holes = 0;
+        for (int c = 0; c < numCols; c++) {
+            boolean seen = false;
+            for (int r = 0; r < numRows; r++) {
+                if (grid[r][c] != null) {
+                    seen = true;
+                } else if (seen) {
+                    holes++;
+                }
+            }
+        }
+        reward -= 0.1 * maxH;
+        reward -= 0.5 * holes;
+
+        // 6) super‐clear bonus
+        if (board.isClear()) {
+            reward += 10.0;
+        }
+
+        // 7) bumpiness reward: encourage smoother surface
+        int currBump = 0;
+        int prevBump = 0;
+        for (int c = 0; c < numCols - 1; c++) {
+            currBump += Math.abs(heights[c] - heights[c+1]);
+            if (lastHeights != null) {
+                prevBump += Math.abs(lastHeights[c] - lastHeights[c+1]);
+            }
+        }
+        if (lastHeights != null && currBump < prevBump) {
+            reward += 0.1 * (prevBump - currBump);
+        }
+
+        // 8) update lastHeights for next call
+        lastHeights = heights;
+
+        return reward;
     }
+    
 
 }
