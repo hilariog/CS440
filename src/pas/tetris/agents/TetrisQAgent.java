@@ -111,9 +111,11 @@ public class TetrisQAgent
             System.exit(-1);
             return qInput; // unreachable
         }
-        Matrix oriented = flattenedImage.transpose();
+        Matrix oriented = flattenedImage;
         int numRows = oriented.getShape().getNumRows();
         int numCols = oriented.getShape().getNumCols();
+
+// Consider inputting: column height sum, bumpyness (sum of difference btweeen consecutive col heights), num holes(if cell null and any cell above it occupied its a hole.)
 
         // 1: maximum height
         int maxHeight = 0;
@@ -351,17 +353,17 @@ public class TetrisQAgent
             reward += 15.0;
         }
 
-        // // 8) bumpiness smoothing bonus
-        // if (lastHeights != null) {
-        //     int prevBump = 0, currBump = 0;
-        //     for (int c = 0; c < numCols - 1; c++) {
-        //         prevBump += Math.abs(lastHeights[c] - lastHeights[c + 1]);
-        //         currBump += Math.abs(heights[c]    - heights[c + 1]);
-        //     }
-        //     if (currBump < prevBump) {
-        //         reward += 0.2 * (prevBump - currBump);
-        //     }
-        // }
+        // 8) bumpiness smoothing bonus
+        if (lastHeights != null) {
+            int prevBump = 0, currBump = 0;
+            for (int c = 0; c < numCols - 1; c++) {
+                prevBump += Math.abs(lastHeights[c] - lastHeights[c + 1]);
+                currBump += Math.abs(heights[c]    - heights[c + 1]);
+            }
+            if (currBump < prevBump) {
+                reward += 0.2 * (prevBump - currBump);
+            }
+        }
 
         // // 8) well‐sum reward: only count rows where the ONLY empty cells
         // //    are true wells (i.e. bounded on left & right) and every other
@@ -448,7 +450,7 @@ public class TetrisQAgent
         //     }
         // }
 
-        reward += 0.1 * wellCells;
+        reward += 0.01 * wellCells;
         // reward += 1.0 * consecutiveHoleRows;
 
         // 10) roll forward for next call
