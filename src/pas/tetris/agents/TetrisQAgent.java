@@ -111,7 +111,7 @@ public class TetrisQAgent
             System.exit(-1);
             return qInput; // unreachable
         }
-        Matrix oriented = flattenedImage;
+        Matrix oriented = flattenedImage.transpose();
         int numRows = oriented.getShape().getNumRows();
         int numCols = oriented.getShape().getNumCols();
 
@@ -346,7 +346,7 @@ public class TetrisQAgent
             }
         }
         reward -= 0.1 * maxH;
-        reward -= 0.1 * holes;
+        reward -= 0.15 * holes;
 
         // 7) perfect‐clear bonus
         if (board.isClear()) {
