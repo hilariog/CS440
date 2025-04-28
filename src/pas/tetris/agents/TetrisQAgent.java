@@ -58,21 +58,15 @@ public class TetrisQAgent
         // in this example, the input to the neural network is the
         // image of the board unrolled into a giant vector
         final int hiddenDimOne = 64;
-        final int hiddenDimTwo = 128;
-        final int hiddenDimThree = 64;
-        final int hiddenDimFour = 32;
+        final int hiddenDimTwo = 32;
         final int outDim = 1;
 
         Sequential qFunction = new Sequential();
-        qFunction.add(new Dense(9, hiddenDimOne));
+        qFunction.add(new Dense(11, hiddenDimOne));
         qFunction.add(new ReLU());
         qFunction.add(new Dense(hiddenDimOne, hiddenDimTwo));
         qFunction.add(new Tanh());
-        qFunction.add(new Dense(hiddenDimTwo, hiddenDimThree));
-        qFunction.add(new Sigmoid());
-        qFunction.add(new Dense(hiddenDimThree, hiddenDimFour));
-        qFunction.add(new ReLU());
-        qFunction.add(new Dense(hiddenDimFour, outDim));
+        qFunction.add(new Dense(hiddenDimTwo, outDim));
 
         return qFunction;
     }
@@ -96,28 +90,56 @@ public class TetrisQAgent
     public Matrix getQFunctionInput(final GameView game,
                                     final Mino potentialAction)
     {
-        int numQEntries = 9;
+        int numQEntries = 11;
         Matrix qInput = Matrix.zeros(numQEntries, 1);
 
-        // 0 score values
-        qInput.set(0, 0, game.getTotalScore());
+         // 0 score values
+        qInput.set(0, 0, game.getTotalScore() / 1000.0);
 
         // grab and orient the image
-        Matrix flattenedImage;
+        Matrix oriented;
         try {
-            flattenedImage = game.getGrayscaleImage(potentialAction);
+            oriented = game.getGrayscaleImage(potentialAction);
         } catch (Exception e) {
             e.printStackTrace();
             System.exit(-1);
             return qInput; // unreachable
         }
-        Matrix oriented = flattenedImage.transpose();
         int numRows = oriented.getShape().getNumRows();
         int numCols = oriented.getShape().getNumCols();
 
-// Consider inputting: column height sum, bumpyness (sum of difference btweeen consecutive col heights), num holes(if cell null and any cell above it occupied its a hole.)
+        int[] heights = new int[numCols];
+        int totalHoles = 0;
+        for (int c = 0; c < numCols; c++) {
+            boolean seenBlock = false;
+            for (int r = 0; r < numRows; r++) {
+                if (oriented.get(r, c) >= 0.5) {
+                    if (!seenBlock) {
+                        // first block in this column
+                        heights[c] = numRows - r;
+                        seenBlock = true;
+                    }
+                } else if (seenBlock) {
+                    // any empty after first block is a hole
+                    totalHoles++;
+                }
+            }
+        }
 
-        // 1: maximum height
+        int bump = 0;
+        for (int c = 0; c < numCols - 1; c++) {
+            bump += Math.abs(heights[c] - heights[c + 1]);
+        }
+        double bumpNorm = bump / ((numCols - 1) * (double) numRows);
+        double holeNorm = totalHoles / (double) (numRows * numCols);
+
+        // 1: bumpiness
+        qInput.set(1, 0, bumpNorm);
+
+        // 2: holes
+        qInput.set(2, 0, holeNorm);
+
+        // 3: maximum height
         int maxHeight = 0;
         for (int i = 0; i < numRows; i++) {
             for (int j = 0; j < numCols; j++) {
@@ -127,12 +149,9 @@ public class TetrisQAgent
                 }
             }
         }
-        qInput.set(1, 0, maxHeight);
+        qInput.set(3, 0, maxHeight / (double) numRows);
 
-        // 2: total number of filled rows, track max consecutive
-        int filledRowCount = 0;
-        int consecutiveFilled = 0;
-        int maxConsecutiveFilled = 0;
+        int filledRowCount = 0, consecutiveFilled = 0, maxConsecutiveFilled = 0;
         for (int i = 0; i < numRows; i++) {
             boolean allFilled = true;
             for (int j = 0; j < numCols; j++) {
@@ -149,28 +168,27 @@ public class TetrisQAgent
                 consecutiveFilled = 0;
             }
         }
-        qInput.set(2, 0, filledRowCount);
+        // 4, 5, 6: filled rows, tetris, full clear
+        qInput.set(4, 0, filledRowCount / (double) numRows);            
+        qInput.set(5, 0, maxConsecutiveFilled >= 4 ? 1.0 : 0.0);        
+        qInput.set(6, 0, filledRowCount == maxHeight ? 1.0 : 0.0);      
 
-        // 3: ≥4 consecutive filled rows?
-        qInput.set(3, 0, maxConsecutiveFilled >= 4 ? 1.0 : 0.0);
+        // 7: did the agent lost?
+        qInput.set(7, 0, game.didAgentLose() ? 1.0 : 0.0);
 
-        // 4: all rows complete (super clear)?
-        qInput.set(4, 0, filledRowCount == maxHeight ? 1.0 : 0.0);
-
-        // 5: did the agent lose?
-        qInput.set(5, 0, game.didAgentLose() ? 1.0 : 0.0);
-
-        // 6-8: next three Mino types (enum ordinals)
+        // next three Mino types
         List<Mino.MinoType> nextTypes = game.getNextThreeMinoTypes();
+        int numTypes = Mino.MinoType.values().length;
         for (int i = 0; i < 3; i++) {
             double val = (i < nextTypes.size())
                 ? nextTypes.get(i).ordinal()
                 : 0.0;
-            qInput.set(6 + i, 0, val);
+            qInput.set(8 + i, 0, (val/(numTypes - 1.0)));
         }
 
         return qInput.transpose();
     }
+
 
 
     /**
