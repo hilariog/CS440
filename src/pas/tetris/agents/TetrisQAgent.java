@@ -57,6 +57,24 @@ public class TetrisQAgent
         // this example will create a 3-layer neural network (1 hidden layer)
         // in this example, the input to the neural network is the
         // image of the board unrolled into a giant vector
+        // final int hiddenDimOne = 64;
+        // final int hiddenDimTwo = 128;
+        // final int hiddenDimThree = 64;
+        // final int hiddenDimFour = 32;
+        // final int outDim = 1;
+
+        // Sequential qFunction = new Sequential();
+        // qFunction.add(new Dense(11, hiddenDimOne));
+        // qFunction.add(new ReLU());
+        // qFunction.add(new Dense(hiddenDimOne, hiddenDimTwo));
+        // qFunction.add(new Tanh());
+        // qFunction.add(new Dense(hiddenDimTwo, hiddenDimThree));
+        // qFunction.add(new Sigmoid());
+        // qFunction.add(new Dense(hiddenDimThree, hiddenDimFour));
+        // qFunction.add(new ReLU());
+        // qFunction.add(new Dense(hiddenDimFour, outDim));
+
+        // return qFunction;
         final int hiddenDimOne = 64;
         final int hiddenDimTwo = 32;
         final int outDim = 1;
@@ -307,173 +325,90 @@ public class TetrisQAgent
     @Override
     public double getReward(final GameView game)
     {
-        // 1) immediate loss penalty, dont wast time if already lost
+        // 1) immediate loss penalty
         if (game.didAgentLose()) {
             return -10.0;
         }
 
-        // 2) base reward = raw points this turn + tiny survival bonus
+        // 2) base reward = raw points + tiny survival bonus
         double reward = game.getScoreThisTurn() + 0.1;
 
-        // 3) grab the board post‐placement
+        // 3) grab board
         Board board = game.getBoard();
         Block[][] grid = board.getBoard();
         int numRows = grid.length, numCols = grid[0].length;
 
-        // 4) compute current column heights
+        // 4) ONE pass to compute:
+        //    - heights[c]
+        //    - currSum of heights
+        //    - maxHeight
+        //    - hole count
         int[] heights = new int[numCols];
+        int currSum    = 0;
+        int maxHeight  = 0;
+        int holes      = 0;
+
         for (int c = 0; c < numCols; c++) {
+            boolean seenBlock = false;
             for (int r = 0; r < numRows; r++) {
                 if (grid[r][c] != null) {
-                    heights[c] = numRows - r;
-                    break;
-                }
-            }
-        }
-
-        // 3.1) bonus for keeping the stack low: normalized inverse average height
-        double avgHeight = Arrays.stream(heights).average().orElse(0.0);
-        double heightFactor = ((double)numRows - avgHeight) / numRows;  // 1.0 = totally empty, 0.0 = full height
-        // tune the weight to taste (0.2 here is a starting point)
-        reward += 0.05 * heightFactor;
-
-        // 5) detect line‐clears by total height drop
-        if (lastHeights != null) {
-            int prevSum = Arrays.stream(lastHeights).sum();
-            int currSum = Arrays.stream(heights).sum();
-            int rowsCleared = prevSum - currSum;  // >0 if lines cleared
-
-            if (rowsCleared >= 4) {
-                reward += 5.0;                // Tetris bonus
-            } else if (rowsCleared > 0) {
-                reward += 1.0 * rowsCleared; // smaller‐clear bonus
-            }
-        }
-
-        // 6) penalize max height & buried holes
-        int maxH = Arrays.stream(heights).max().orElse(0);
-        int holes = 0;
-        for (int c = 0; c < numCols; c++) {
-            boolean seen = false;
-            for (int r = 0; r < numRows; r++) {
-                if (grid[r][c] != null) {
-                    seen = true;
-                } else if (seen) {
+                    if (!seenBlock) {
+                        // first block in this column
+                        int h = numRows - r;
+                        heights[c] = h;
+                        currSum   += h;
+                        if (h > maxHeight) maxHeight = h;
+                        seenBlock = true;
+                    }
+                    // once seenBlock is true, we skip further filled-cell logic
+                } else if (seenBlock) {
+                    // every empty cell below the first block is a “hole”
                     holes++;
                 }
             }
         }
-        reward -= 0.1 * maxH;
-        reward -= 0.15 * holes;
 
-        // 7) perfect‐clear bonus
-        if (board.isClear()) {
-            reward += 15.0;
-        }
+        // 4.1) heightFactor bonus
+        double avgHeight   = (double)currSum / numCols;
+        double heightFactor = ((double)numRows - avgHeight) / numRows;
+        reward += 0.05 * heightFactor;
 
-        // 8) bumpiness smoothing bonus
+        // 5 & 8) single pass over lastHeights to do line‐clear bonus and bumpiness smoothing
         if (lastHeights != null) {
-            int prevBump = 0, currBump = 0;
-            for (int c = 0; c < numCols - 1; c++) {
-                prevBump += Math.abs(lastHeights[c] - lastHeights[c + 1]);
-                currBump += Math.abs(heights[c]    - heights[c + 1]);
+            int prevSum   = 0;
+            int prevBump  = 0;
+            int currBump  = 0;
+            for (int c = 0; c < numCols; c++) {
+                prevSum += lastHeights[c];
+                if (c < numCols - 1) {
+                    prevBump += Math.abs(lastHeights[c] - lastHeights[c+1]);
+                    currBump += Math.abs(heights[c]     - heights[c+1]);
+                }
             }
+
+            int rowsCleared = prevSum - currSum;
+            if (rowsCleared >= 4) {
+                reward += 10.0;             // Tetris
+            } else if (rowsCleared > 0) {
+                reward += 1.0 * rowsCleared;
+            }
+
             if (currBump < prevBump) {
                 reward += 0.2 * (prevBump - currBump);
             }
         }
 
-        // // 8) well‐sum reward: only count rows where the ONLY empty cells
-        // //    are true wells (i.e. bounded on left & right) and every other
-        // //    column is occupied, so filling those holes WOULD clear the row.
-        // int wellRows = 0;
-        // for (int r = 0; r < numRows; r++) {
-        //     boolean sawWellCell = false;
-        //     boolean sawNonWellHole = false;
-        //     for (int c = 0; c < numCols; c++) {
-        //         if (grid[r][c] == null) {
-        //             // check if this empty is a “well” (neighbors occupied or edge)
-        //             boolean leftFilled  = (c == 0) || (grid[r][c-1] != null);
-        //             boolean rightFilled = (c == numCols-1) || (grid[r][c+1] != null);
-        //             if (leftFilled && rightFilled) {
-        //                 sawWellCell = true;
-        //             } else {
-        //                 sawNonWellHole = true;
-        //                 break;
-        //             }
-        //         }
-        //     }
-        //     if (sawWellCell && !sawNonWellHole) {
-        //         wellRows++;
-        //     }
-        // }
-        // // reward each such “perfect well‐row” lightly
-        // reward += 0.2 * wellRows;
+        // 6) penalize max height & buried holes
+        reward -= 0.1 * maxHeight;
+        reward -= 0.15 * holes;
 
-        // 11) count every exposed well-cell:
-        //    for each column, find the first filled cell (topFilled), then
-        //    every null above it is an exposed well cell.
-        int wellCells = 0;
-        for (int c = 0; c < numCols; c++) {
-            // find row index of first block in this column
-            int topFilled = numRows;
-            for (int r = 0; r < numRows; r++) {
-                if (grid[r][c] != null) {
-                    topFilled = r;
-                    break;
-                }
-            }
-            // count all empty cells above it
-            for (int r = 0; r < topFilled; r++) {
-                if (grid[r][c] == null) {
-                    wellCells++;
-                }
-            }
+        // 7) perfect-clear bonus
+        if (board.isClear()) {
+            reward += 15.0;
         }
 
-
-        // // 12) count rows that have exactly one run of 1 or 2 holes,
-        // //     those holes must be "sky-exposed" (no block above them).
-        // int consecutiveHoleRows = 0;
-        // for (int r = 0; r < numRows; r++) {
-        //     int holeCount = 0;
-        //     int maxRun = 0, currentRun = 0;
-        //     for (int c = 0; c < numCols; c++) {
-        //         if (grid[r][c] == null) {
-        //             // check if this hole is exposed (no blocks above)
-        //             boolean exposed = true;
-        //             for (int up = 0; up < r; up++) {
-        //                 if (grid[up][c] != null) {
-        //                     exposed = false;
-        //                     break;
-        //                 }
-        //             }
-        //             if (exposed) {
-        //                 holeCount++;
-        //                 currentRun++;
-        //                 maxRun = Math.max(maxRun, currentRun);
-        //             } else {
-        //                 // covered hole → invalidate this row
-        //                 currentRun = 0;
-        //                 holeCount = Integer.MAX_VALUE;
-        //                 break;
-        //             }
-        //         } else {
-        //             currentRun = 0;
-        //         }
-        //     }
-        //     // exactly one run, length 1 or 2, and no other holes
-        //     if (holeCount > 0 && holeCount <= 2 && maxRun == holeCount) {
-        //         consecutiveHoleRows++;
-        //     }
-        // }
-
-        reward += 0.01 * wellCells;
-        // reward += 1.0 * consecutiveHoleRows;
-
-        // 10) roll forward for next call
+        // 10) roll forward
         lastHeights = heights;
-
         return reward;
     }
     
